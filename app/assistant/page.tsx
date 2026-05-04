@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
 import {
   STATUS_LABELS,
@@ -75,7 +75,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = 'Copy Prompt' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
 
   async function copy() {
@@ -111,7 +111,7 @@ function CopyButton({ text }: { text: string }) {
             <rect x="9" y="9" width="13" height="13" rx="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
-          Copy Prompt
+          {label}
         </>
       )}
     </button>
@@ -192,6 +192,11 @@ export default function AssistantPage() {
   const [resourceSearch, setResourceSearch] = useState('')
   const resourceSearchRef = useRef<HTMLInputElement>(null)
 
+  const [response, setResponse] = useState('')
+  const [genStatus, setGenStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const abortRef = useRef<AbortController | null>(null)
+
   const task = TASKS.find((t) => t.id === taskId)
 
   // Sort jobs: active pipeline first, then by company name
@@ -236,6 +241,47 @@ export default function AssistantPage() {
       return next
     })
   }
+
+  const handleGenerate = useCallback(async (builtPrompt: string) => {
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
+    setResponse('')
+    setErrorMsg('')
+    setGenStatus('loading')
+
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: builtPrompt }),
+        signal: ctrl.signal,
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server error ${res.status}`)
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error('No response body')
+
+      const dec = new TextDecoder()
+      let acc = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        acc += dec.decode(value, { stream: true })
+        setResponse(acc)
+      }
+      setGenStatus('done')
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return
+      setErrorMsg(err instanceof Error ? err.message : 'Unknown error')
+      setGenStatus('error')
+    }
+  }, [])
 
   const prompt = useMemo(
     () => buildPrompt(task, jobId, jobs, selectedResourceIds, resources, customInstructions),
@@ -474,41 +520,89 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* Placeholder response panel */}
+        {/* AI Response panel */}
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-900">AI Response</h2>
-            <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-              Coming soon
-            </span>
-          </div>
-          <div className="px-5 py-10 flex flex-col items-center text-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 8v4l3 3" />
-              </svg>
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-zinc-900">AI Response</h2>
+              {genStatus === 'loading' && (
+                <span className="flex items-center gap-1.5 text-xs text-blue-600">
+                  <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  Generating…
+                </span>
+              )}
+              {genStatus === 'done' && (
+                <span className="text-xs text-emerald-600">Done</span>
+              )}
+              {genStatus === 'error' && (
+                <span className="text-xs text-red-500">Error</span>
+              )}
             </div>
-            <div>
-              <p className="text-sm font-medium text-zinc-700">LLM API integration coming next.</p>
-              <p className="text-xs text-zinc-400 mt-1 max-w-sm">
-                For now, copy the generated prompt and paste it into Claude, ChatGPT, or any LLM of your choice.
-                When the API is wired up, responses will appear here automatically.
-              </p>
+            <div className="flex items-center gap-2">
+              {genStatus === 'loading' && (
+                <button
+                  onClick={() => { abortRef.current?.abort(); setGenStatus('idle') }}
+                  className="px-3 py-1.5 text-xs font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+                >
+                  Stop
+                </button>
+              )}
+              {(genStatus === 'done' || response) && (
+                <CopyButton text={response} label="Copy Response" />
+              )}
+              <button
+                onClick={() => handleGenerate(prompt)}
+                disabled={promptIsEmpty || genStatus === 'loading'}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
+                </svg>
+                Generate
+              </button>
             </div>
-            <a
-              href="https://claude.ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-1 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-zinc-900 text-white rounded-lg hover:bg-zinc-700 transition-colors"
-            >
-              Open Claude
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </a>
           </div>
+
+          {genStatus === 'idle' && !response && (
+            <div className="px-5 py-10 flex flex-col items-center text-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
+                  <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-600">Ready to generate</p>
+                <p className="text-xs text-zinc-400 mt-1 max-w-sm">
+                  Build your prompt on the left, then click Generate. Make sure{' '}
+                  <code className="font-mono bg-zinc-100 px-1 rounded">ANTHROPIC_API_KEY</code>{' '}
+                  is set in <code className="font-mono bg-zinc-100 px-1 rounded">.env.local</code>.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {genStatus === 'error' && (
+            <div className="px-5 py-6 flex items-start gap-3 bg-red-50/50">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500 mt-0.5 shrink-0">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-red-700">Generation failed</p>
+                <p className="text-xs text-red-500 mt-0.5">{errorMsg}</p>
+              </div>
+            </div>
+          )}
+
+          {(response || genStatus === 'loading') && (
+            <pre className="px-5 py-4 text-xs text-zinc-700 font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-[60vh] overflow-y-auto bg-zinc-50/40">
+              {response}
+              {genStatus === 'loading' && (
+                <span className="inline-block w-1.5 h-3.5 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />
+              )}
+            </pre>
+          )}
         </div>
       </div>
     </div>
