@@ -72,6 +72,14 @@ function IconBarChart() {
   )
 }
 
+function IconSparkle() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
+    </svg>
+  )
+}
+
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
   { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
@@ -80,6 +88,7 @@ const NAV_ITEMS = [
   { label: 'Resources', href: '/resources', icon: <IconFolder />, shortcut: '⌘5' },
   { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
   { label: 'Analytics', href: '/analytics', icon: <IconBarChart />, shortcut: '⌘7' },
+  { label: 'AI Assistant', href: '/assistant', icon: <IconSparkle />, shortcut: '⌘8' },
 ]
 
 export function Sidebar() {
@@ -93,6 +102,7 @@ export function Sidebar() {
   useHotkey('5', () => router.push('/resources'), { meta: true })
   useHotkey('6', () => router.push('/import'), { meta: true })
   useHotkey('7', () => router.push('/analytics'), { meta: true })
+  useHotkey('8', () => router.push('/assistant'), { meta: true })
 
   return (
     <aside className="w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200">
