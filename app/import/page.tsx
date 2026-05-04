@@ -19,10 +19,19 @@ const STATUS_MAP: Record<string, JobStatus> = {
   ready_to_apply: 'ready_to_apply',
   oa: 'oa',
   hirevue: 'hirevue',
+  'hirevue done': 'hirevue',
   'recruiter screen': 'recruiter_screen',
   recruiter_screen: 'recruiter_screen',
   'final round': 'final_round',
   final_round: 'final_round',
+  // real-world variants
+  'not started': 'saved',
+  denied: 'rejected',
+  'interview round 1': 'interview',
+  'interview round 2': 'interview',
+  'interview round 3': 'interview',
+  'interview round 4': 'final_round',
+  'interview round 5': 'final_round',
 }
 
 const PRIORITY_MAP: Record<string, Priority> = {
