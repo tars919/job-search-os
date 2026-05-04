@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
 import { STATUS_LABELS, STATUS_COLORS, type ResearchNote } from '@/lib/types'
 import { NoteModal } from '@/components/NoteModal'
+import { useToast } from '@/lib/toast'
+import { useHotkey } from '@/lib/hotkeys'
 
 // ─── Lightweight markdown renderer ───────────────────────────────────────────
 // Handles: ## headings, **bold**, - / * bullets, blank lines
@@ -180,10 +182,15 @@ function SkeletonCard() {
 
 export default function ResearchPage() {
   const { notes, jobs, addNote, updateNote, deleteNote, ready } = useStore()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<ResearchNote | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useHotkey('n', openAdd)
+  useHotkey('/', () => { searchRef.current?.focus() })
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -214,14 +221,17 @@ export default function ResearchPage() {
   function handleSave(data: Omit<ResearchNote, 'id' | 'createdAt' | 'updatedAt'>) {
     if (editTarget) {
       updateNote(editTarget.id, data)
+      toast(`${data.company} note updated`, 'success')
     } else {
       addNote(data)
+      toast(`${data.company} note saved`, 'success')
     }
   }
 
   function handleDelete(id: string, company: string) {
     if (window.confirm(`Delete research note for ${company}?`)) {
       deleteNote(id)
+      toast(`${company} note deleted`, 'success')
     }
   }
 
@@ -251,6 +261,7 @@ export default function ResearchPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           New Note
+          <kbd className="ml-1 rounded bg-blue-500 px-1.5 py-0.5 font-mono text-[10px] text-blue-100">N</kbd>
         </button>
       </div>
 
@@ -265,6 +276,7 @@ export default function ResearchPage() {
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
+          ref={searchRef}
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}

@@ -74,10 +74,10 @@ export function PromptModal({
   }, [isOpen, onClose])
 
   useEffect(() => {
-    if (isOpen) setTimeout(() => titleRef.current?.focus(), 50)
+    if (!isOpen) return
+    const timer = setTimeout(() => titleRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
   }, [isOpen])
-
-  if (!isOpen) return null
 
   function set(key: keyof FormState, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -104,11 +104,15 @@ export function PromptModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div
+      aria-hidden={!isOpen}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+      onClick={isOpen ? onClose : undefined}
+    >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
 
       <div
-        className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+        className={`relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col transition-all duration-200 ${isOpen ? 'scale-100 translate-y-0' : 'scale-[0.97] translate-y-1'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

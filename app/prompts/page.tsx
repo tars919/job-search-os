@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
 import type { PromptEntry } from '@/lib/types'
 import { PromptModal } from '@/components/PromptModal'
+import { useToast } from '@/lib/toast'
+import { useHotkey } from '@/lib/hotkeys'
 
 // ─── Copy button with feedback ────────────────────────────────────────────────
 
@@ -136,11 +138,16 @@ function PromptCard({
 
 export default function PromptsPage() {
   const { prompts, addPrompt, updatePrompt, deletePrompt, ready } = useStore()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<PromptEntry | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useHotkey('n', openAdd)
+  useHotkey('/', () => { searchRef.current?.focus() })
 
   const categories = useMemo(() => {
     const unique = Array.from(new Set(prompts.map((p) => p.category))).sort()
@@ -175,14 +182,17 @@ export default function PromptsPage() {
   function handleSave(data: Omit<PromptEntry, 'id' | 'createdAt' | 'updatedAt'>) {
     if (editTarget) {
       updatePrompt(editTarget.id, data)
+      toast(`"${data.title}" updated`, 'success')
     } else {
       addPrompt(data)
+      toast(`"${data.title}" saved`, 'success')
     }
   }
 
   function handleDelete(id: string, title: string) {
     if (window.confirm(`Delete "${title}"?`)) {
       deletePrompt(id)
+      toast(`"${title}" deleted`, 'success')
     }
   }
 
@@ -212,6 +222,7 @@ export default function PromptsPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           New Prompt
+          <kbd className="ml-1 rounded bg-blue-500 px-1.5 py-0.5 font-mono text-[10px] text-blue-100">N</kbd>
         </button>
       </div>
 
@@ -225,6 +236,7 @@ export default function PromptsPage() {
           <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <input
+          ref={searchRef}
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}

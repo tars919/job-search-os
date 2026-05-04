@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useStore } from '@/lib/store'
 import {
   JOB_STATUSES,
@@ -12,6 +12,8 @@ import {
   type Job,
 } from '@/lib/types'
 import { JobModal } from '@/components/JobModal'
+import { useToast } from '@/lib/toast'
+import { useHotkey } from '@/lib/hotkeys'
 
 // ─── Deadline helpers ────────────────────────────────────────────────────────
 
@@ -55,12 +57,17 @@ function SkeletonRow() {
 
 export default function ApplicationsPage() {
   const { jobs, addJob, updateJob, deleteJob, ready } = useStore()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Job | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useHotkey('n', openAdd)
+  useHotkey('/', () => { searchRef.current?.focus() })
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -93,14 +100,17 @@ export default function ApplicationsPage() {
   function handleSave(data: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) {
     if (editTarget) {
       updateJob(editTarget.id, data)
+      toast(`${data.company} updated`, 'success')
     } else {
       addJob(data)
+      toast(`${data.company} added`, 'success')
     }
   }
 
   function handleDelete(id: string, company: string) {
     if (window.confirm(`Remove ${company} from your applications?`)) {
       deleteJob(id)
+      toast(`${company} removed`, 'success')
     }
   }
 
@@ -133,6 +143,7 @@ export default function ApplicationsPage() {
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
           Add Application
+          <kbd className="ml-1 rounded bg-blue-500 px-1.5 py-0.5 font-mono text-[10px] text-blue-100">N</kbd>
         </button>
       </div>
 
@@ -148,6 +159,7 @@ export default function ApplicationsPage() {
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
+            ref={searchRef}
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

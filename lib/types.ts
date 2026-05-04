@@ -78,6 +78,7 @@ export interface Job {
   url?: string        // job posting URL
   location?: string
   salaryRange?: string
+  fitScore?: string
   notes?: string
   savedAt?: string    // YYYY-MM-DD — when user bookmarked the role
   deadline?: string   // YYYY-MM-DD

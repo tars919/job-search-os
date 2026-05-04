@@ -40,6 +40,7 @@ interface Store {
   prompts: PromptEntry[]
   notes: ResearchNote[]
   addJob: (job: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void
+  bulkAddJobs: (jobs: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>[]) => void
   updateJob: (id: string, patch: Partial<Omit<Job, 'id' | 'createdAt'>>) => void
   deleteJob: (id: string) => void
   addPrompt: (prompt: Omit<PromptEntry, 'id' | 'createdAt' | 'updatedAt'>) => void
@@ -81,6 +82,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (job: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => {
       const ts = now()
       setJobs((prev) => [{ ...job, id: uid(), createdAt: ts, updatedAt: ts }, ...prev])
+    },
+    [],
+  )
+
+  const bulkAddJobs = useCallback(
+    (newJobs: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>[]) => {
+      const ts = now()
+      setJobs((prev) => [
+        ...newJobs.map((j) => ({ ...j, id: uid(), createdAt: ts, updatedAt: ts })),
+        ...prev,
+      ])
     },
     [],
   )
@@ -148,6 +160,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         prompts,
         notes,
         addJob,
+        bulkAddJobs,
         updateJob,
         deleteJob,
         addPrompt,
