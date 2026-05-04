@@ -61,6 +61,17 @@ function IconFolder() {
   )
 }
 
+function IconBarChart() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+      <line x1="2" y1="20" x2="22" y2="20" />
+    </svg>
+  )
+}
+
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
   { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
@@ -68,6 +79,7 @@ const NAV_ITEMS = [
   { label: 'Research Notes', href: '/research', icon: <IconBook />, shortcut: '⌘4' },
   { label: 'Resources', href: '/resources', icon: <IconFolder />, shortcut: '⌘5' },
   { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
+  { label: 'Analytics', href: '/analytics', icon: <IconBarChart />, shortcut: '⌘7' },
 ]
 
 export function Sidebar() {
@@ -80,6 +92,7 @@ export function Sidebar() {
   useHotkey('4', () => router.push('/research'), { meta: true })
   useHotkey('5', () => router.push('/resources'), { meta: true })
   useHotkey('6', () => router.push('/import'), { meta: true })
+  useHotkey('7', () => router.push('/analytics'), { meta: true })
 
   return (
     <aside className="w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200">
