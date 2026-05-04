@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { useStore } from '@/lib/store'
-import { STATUS_LABELS, type Job, type JobStatus, type Priority } from '@/lib/types'
+import { STATUS_LABELS, type Job, type JobStatus } from '@/lib/types'
 
 // ─── CSV → Job mapping ────────────────────────────────────────────────────────
 
@@ -34,25 +34,8 @@ const STATUS_MAP: Record<string, JobStatus> = {
   'interview round 5': 'final_round',
 }
 
-const PRIORITY_MAP: Record<string, Priority> = {
-  high: 'high',
-  h: 'high',
-  '3': 'high',
-  medium: 'medium',
-  med: 'medium',
-  m: 'medium',
-  '2': 'medium',
-  low: 'low',
-  l: 'low',
-  '1': 'low',
-}
-
 function normalizeStatus(raw: string): JobStatus {
   return STATUS_MAP[raw.trim().toLowerCase()] ?? 'saved'
-}
-
-function normalizePriority(raw: string): Priority | null {
-  return PRIORITY_MAP[raw.trim().toLowerCase()] ?? null
 }
 
 function normalizeDate(raw: string): string | undefined {
@@ -83,45 +66,26 @@ interface PreviewRow {
 // ─── Row parser ───────────────────────────────────────────────────────────────
 
 function parseRow(raw: Record<string, string>, headers: string[]): ParsedRow {
-  // Header-based lookup (case-insensitive)
   function get(name: string): string {
     const key = headers.find((h) => h.trim().toLowerCase() === name.toLowerCase())
     return key != null ? (raw[key] ?? '').trim() : ''
   }
 
-  // Blank second column by index
-  const blankColKey = headers[1] ?? ''
-  const appliedAtRaw = (raw[blankColKey] ?? '').trim()
-
-  const status = normalizeStatus(get('status'))
-  const role = get('title')
-  const company = get('company')
-  const location = get('location') || undefined
-  const url = get('link') || undefined
-  const notesRaw = get('notes') || undefined
-  const fitScore = get('fit score') || undefined
-  const appliedAt = normalizeDate(appliedAtRaw)
-
-  const importanceRaw = get('importance')
-  const priority = normalizePriority(importanceRaw) ?? undefined
-
-  // If importance value was unrecognized, append it to notes so no data is lost
-  let notes = notesRaw
-  if (importanceRaw && !normalizePriority(importanceRaw)) {
-    const extra = `Importance: ${importanceRaw}`
-    notes = notes ? `${notes}\n${extra}` : extra
-  }
+  // "Date" header or blank second column — both mean appliedAt
+  const dateColKey =
+    headers.find((h) => h.trim().toLowerCase() === 'date') ?? headers[1] ?? ''
+  const appliedAtRaw = (raw[dateColKey] ?? '').trim()
 
   return {
-    company,
-    role,
-    status,
-    priority,
-    url,
-    location,
-    fitScore,
-    notes,
-    appliedAt,
+    company: get('company'),
+    role: get('title'),
+    status: normalizeStatus(get('status')),
+    url: get('link') || undefined,
+    location: get('location') || undefined,
+    fitScore: get('fit score') || undefined,
+    importanceScore: get('importance') || undefined,
+    notes: get('notes') || undefined,
+    appliedAt: normalizeDate(appliedAtRaw),
   }
 }
 
@@ -135,7 +99,7 @@ export default function ImportPage() {
 
   const [stage, setStage] = useState<Stage>('idle')
   const [rows, setRows] = useState<PreviewRow[]>([])
-  const [result, setResult] = useState<{ added: number; skipped: number } | null>(null)
+  const [result, setResult] = useState<{ added: number; duplicates: number; invalid: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   function handleFile(file: File) {
@@ -191,7 +155,11 @@ export default function ImportPage() {
   function handleImport() {
     const toAdd = rows.filter((r) => !r.skip).map((r) => r.parsed)
     bulkAddJobs(toAdd)
-    setResult({ added: toAdd.length, skipped: rows.length - toAdd.length })
+    setResult({
+      added: toAdd.length,
+      duplicates: rows.filter((r) => r.skipReason === 'Duplicate').length,
+      invalid: rows.filter((r) => r.skipReason === 'Missing company or role').length,
+    })
     setStage('done')
   }
 
@@ -204,7 +172,8 @@ export default function ImportPage() {
   }
 
   const toAdd = rows.filter((r) => !r.skip).length
-  const toSkip = rows.filter((r) => r.skip).length
+  const toDuplicates = rows.filter((r) => r.skipReason === 'Duplicate').length
+  const toInvalid = rows.filter((r) => r.skipReason === 'Missing company or role').length
 
   return (
     <div className="p-8 max-w-5xl">
@@ -265,10 +234,16 @@ export default function ImportPage() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
                 <span className="font-semibold">{toAdd}</span> will be added
               </span>
-              {toSkip > 0 && (
+              {toDuplicates > 0 && (
                 <span className="flex items-center gap-1.5 text-zinc-400">
                   <span className="w-2 h-2 rounded-full bg-zinc-300 inline-block" />
-                  <span className="font-semibold">{toSkip}</span> skipped
+                  <span className="font-semibold">{toDuplicates}</span> duplicates
+                </span>
+              )}
+              {toInvalid > 0 && (
+                <span className="flex items-center gap-1.5 text-red-400">
+                  <span className="w-2 h-2 rounded-full bg-red-300 inline-block" />
+                  <span className="font-semibold">{toInvalid}</span> invalid
                 </span>
               )}
             </div>
@@ -299,7 +274,7 @@ export default function ImportPage() {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Role</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Applied</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Priority</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Importance</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Fit</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide">Location</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide w-28">Result</th>
@@ -325,8 +300,8 @@ export default function ImportPage() {
                       <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
                         {row.parsed.appliedAt ?? <span className="text-zinc-200">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-zinc-400 capitalize whitespace-nowrap">
-                        {row.parsed.priority ?? <span className="text-zinc-200">—</span>}
+                      <td className="px-4 py-3 text-zinc-400 whitespace-nowrap max-w-[120px]">
+                        <span className="block truncate">{row.parsed.importanceScore ?? <span className="text-zinc-200">—</span>}</span>
                       </td>
                       <td className="px-4 py-3 text-zinc-400 whitespace-nowrap">
                         {row.parsed.fitScore ?? <span className="text-zinc-200">—</span>}
@@ -361,10 +336,13 @@ export default function ImportPage() {
             </div>
             <div>
               <p className="text-base font-semibold text-zinc-900">Import complete</p>
-              <p className="text-sm text-zinc-400 mt-1">
+              <p className="text-sm text-zinc-400 mt-1 flex items-center justify-center gap-3 flex-wrap">
                 <span className="text-emerald-700 font-medium">{result.added} added</span>
-                {result.skipped > 0 && (
-                  <> &nbsp;·&nbsp; <span>{result.skipped} skipped</span></>
+                {result.duplicates > 0 && (
+                  <span>{result.duplicates} duplicate{result.duplicates !== 1 ? 's' : ''} skipped</span>
+                )}
+                {result.invalid > 0 && (
+                  <span className="text-red-400">{result.invalid} invalid skipped</span>
                 )}
               </p>
             </div>
