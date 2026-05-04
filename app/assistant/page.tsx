@@ -251,6 +251,8 @@ export default function AssistantPage() {
     setErrorMsg('')
     setGenStatus('loading')
 
+    const ERROR_PREFIX = '__STREAM_ERROR__:'
+
     try {
       const res = await fetch('/api/assistant', {
         method: 'POST',
@@ -273,8 +275,13 @@ export default function AssistantPage() {
         const { done, value } = await reader.read()
         if (done) break
         acc += dec.decode(value, { stream: true })
-        setResponse(acc)
+        if (!acc.startsWith(ERROR_PREFIX)) setResponse(acc)
       }
+
+      if (acc.startsWith(ERROR_PREFIX)) {
+        throw new Error(acc.slice(ERROR_PREFIX.length))
+      }
+
       setGenStatus('done')
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
