@@ -53,12 +53,21 @@ function IconUpload() {
   )
 }
 
+function IconFolder() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  )
+}
+
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
   { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
   { label: 'Prompt Library', href: '/prompts', icon: <IconChat />, shortcut: '⌘3' },
   { label: 'Research Notes', href: '/research', icon: <IconBook />, shortcut: '⌘4' },
-  { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘5' },
+  { label: 'Resources', href: '/resources', icon: <IconFolder />, shortcut: '⌘5' },
+  { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
 ]
 
 export function Sidebar() {
@@ -69,7 +78,8 @@ export function Sidebar() {
   useHotkey('2', () => router.push('/applications'), { meta: true })
   useHotkey('3', () => router.push('/prompts'), { meta: true })
   useHotkey('4', () => router.push('/research'), { meta: true })
-  useHotkey('5', () => router.push('/import'), { meta: true })
+  useHotkey('5', () => router.push('/resources'), { meta: true })
+  useHotkey('6', () => router.push('/import'), { meta: true })
 
   return (
     <aside className="w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200">

@@ -88,6 +88,55 @@ export interface Job {
   createdAt: string   // ISO string
 }
 
+export const RESOURCE_TYPES = [
+  'resume',
+  'cover_letter',
+  'company_resume',
+  'job_description',
+  'recruiter_email',
+  'notes',
+  'other',
+] as const
+
+export type ResourceType = (typeof RESOURCE_TYPES)[number]
+
+export const RESOURCE_TYPE_LABELS: Record<ResourceType, string> = {
+  resume: 'Resume',
+  cover_letter: 'Cover Letter',
+  company_resume: 'Company Resume',
+  job_description: 'Job Description',
+  recruiter_email: 'Recruiter Email',
+  notes: 'Notes',
+  other: 'Other',
+}
+
+export const RESOURCE_TYPE_COLORS: Record<ResourceType, string> = {
+  resume: 'bg-blue-50 text-blue-700',
+  cover_letter: 'bg-violet-50 text-violet-700',
+  company_resume: 'bg-indigo-50 text-indigo-700',
+  job_description: 'bg-amber-50 text-amber-700',
+  recruiter_email: 'bg-emerald-50 text-emerald-700',
+  notes: 'bg-zinc-100 text-zinc-600',
+  other: 'bg-zinc-100 text-zinc-500',
+}
+
+export interface Resource {
+  id: string
+  title: string
+  type: ResourceType
+  company?: string
+  role?: string
+  tags: string[]
+  fileName?: string
+  fileType?: string
+  fileSize?: number
+  sourceUrl?: string
+  contentText?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface PromptEntry {
   id: string
   title: string

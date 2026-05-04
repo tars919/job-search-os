@@ -8,13 +8,14 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import type { Job, PromptEntry, ResearchNote } from './types'
+import type { Job, PromptEntry, ResearchNote, Resource } from './types'
 import { SEED_JOBS, SEED_PROMPTS, SEED_NOTES } from './seed'
 
 const KEYS = {
   jobs: 'jsos:jobs',
   prompts: 'jsos:prompts',
   notes: 'jsos:notes',
+  resources: 'jsos:resources',
 }
 
 function now() {
@@ -39,6 +40,7 @@ interface Store {
   jobs: Job[]
   prompts: PromptEntry[]
   notes: ResearchNote[]
+  resources: Resource[]
   addJob: (job: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void
   bulkAddJobs: (jobs: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>[]) => void
   updateJob: (id: string, patch: Partial<Omit<Job, 'id' | 'createdAt'>>) => void
@@ -49,6 +51,9 @@ interface Store {
   addNote: (note: Omit<ResearchNote, 'id' | 'createdAt' | 'updatedAt'>) => void
   updateNote: (id: string, patch: Partial<Omit<ResearchNote, 'id' | 'createdAt'>>) => void
   deleteNote: (id: string) => void
+  addResource: (resource: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>) => void
+  updateResource: (id: string, patch: Partial<Omit<Resource, 'id' | 'createdAt'>>) => void
+  deleteResource: (id: string) => void
 }
 
 const StoreContext = createContext<Store | null>(null)
@@ -58,11 +63,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>([])
   const [prompts, setPrompts] = useState<PromptEntry[]>([])
   const [notes, setNotes] = useState<ResearchNote[]>([])
+  const [resources, setResources] = useState<Resource[]>([])
 
   useEffect(() => {
     setJobs(load(KEYS.jobs, SEED_JOBS))
     setPrompts(load(KEYS.prompts, SEED_PROMPTS))
     setNotes(load(KEYS.notes, SEED_NOTES))
+    setResources(load(KEYS.resources, []))
     setReady(true)
   }, [])
 
@@ -77,6 +84,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (ready) localStorage.setItem(KEYS.notes, JSON.stringify(notes))
   }, [notes, ready])
+
+  useEffect(() => {
+    if (ready) localStorage.setItem(KEYS.resources, JSON.stringify(resources))
+  }, [resources, ready])
 
   const addJob = useCallback(
     (job: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => {
@@ -152,6 +163,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setNotes((prev) => prev.filter((n) => n.id !== id))
   }, [])
 
+  const addResource = useCallback(
+    (resource: Omit<Resource, 'id' | 'createdAt' | 'updatedAt'>) => {
+      const ts = now()
+      setResources((prev) => [{ ...resource, id: uid(), createdAt: ts, updatedAt: ts }, ...prev])
+    },
+    [],
+  )
+
+  const updateResource = useCallback(
+    (id: string, patch: Partial<Omit<Resource, 'id' | 'createdAt'>>) => {
+      setResources((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...patch, updatedAt: now() } : r)),
+      )
+    },
+    [],
+  )
+
+  const deleteResource = useCallback((id: string) => {
+    setResources((prev) => prev.filter((r) => r.id !== id))
+  }, [])
+
   return (
     <StoreContext.Provider
       value={{
@@ -169,6 +201,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addNote,
         updateNote,
         deleteNote,
+        resources,
+        addResource,
+        updateResource,
+        deleteResource,
       }}
     >
       {children}
