@@ -61,9 +61,30 @@ const TASKS = [
     instruction:
       'You are a research analyst helping a job candidate prepare for an interview. Summarize the key points from the company research provided. Focus on mission, culture, tech stack, recent news, and anything relevant to a job interview. End with 3 smart questions the candidate could ask.',
   },
+  {
+    id: 'find_best_resume',
+    label: 'Find Best Resume Match',
+    icon: '🏆',
+    hint: 'auto-scores all resumes',
+    instruction: '',
+  },
 ] as const
 
 type TaskId = (typeof TASKS)[number]['id']
+
+// ─── Resume match types ────────────────────────────────────────────────────────
+
+type ResourceMatch = {
+  title: string
+  score: number
+  reasons: string[]
+  missingKeywords: string[]
+}
+
+type MatchResult = {
+  matches: ResourceMatch[]
+  suggestedSkills: string[]
+}
 
 // ─── Small components ─────────────────────────────────────────────────────────
 
@@ -131,12 +152,61 @@ function buildPrompt(
   if (!task) return ''
 
   const lines: string[] = []
+  const job = jobs.find((j) => j.id === jobId)
 
+  // ── Special: resume match ──
+  if (task.id === 'find_best_resume') {
+    const docs = resources.filter((r) => r.type === 'resume' || r.type === 'cover_letter')
+
+    lines.push('You are an expert resume screener.')
+    lines.push('Compare the job description below against each provided document.')
+    lines.push('Score each document 0–100 across: keyword overlap, relevant skills, role alignment, company/domain alignment.')
+    lines.push('')
+    lines.push('Respond ONLY with valid JSON — no markdown, no code fences, no explanation:')
+    lines.push('{"matches":[{"title":"...","score":85,"reasons":["reason 1","reason 2"],"missingKeywords":["keyword1","keyword2"]}],"suggestedSkills":["skill1","skill2"]}')
+    lines.push('')
+    lines.push('Rules:')
+    lines.push('- "matches" must include ALL documents provided, sorted by score descending')
+    lines.push('- "reasons" must be 2–4 concise strings explaining why the document matched')
+    lines.push('- "missingKeywords" must be 3–6 specific terms from the job description absent in the document')
+    lines.push('- "suggestedSkills" must be 4–8 high-priority unique skills missing across all documents')
+    lines.push('- scores must be integers 0–100')
+
+    if (job) {
+      lines.push('')
+      lines.push('## Job Description')
+      lines.push(`Company: ${job.company}`)
+      lines.push(`Role: ${job.role}`)
+      if (job.location) lines.push(`Location: ${job.location}`)
+      if (job.notes) { lines.push(''); lines.push(job.notes) }
+    }
+
+    if (docs.length > 0) {
+      lines.push('')
+      lines.push('## Documents to Analyze')
+      docs.forEach((r, i) => {
+        lines.push('')
+        lines.push(`### Document ${i + 1}: ${r.title} [${RESOURCE_TYPE_LABELS[r.type]}]`)
+        if (r.contentText) lines.push(r.contentText)
+        else if (r.notes) lines.push(r.notes)
+        else lines.push('(no text content)')
+      })
+    }
+
+    if (customInstructions.trim()) {
+      lines.push('')
+      lines.push('## Additional Context')
+      lines.push(customInstructions.trim())
+    }
+
+    return lines.join('\n')
+  }
+
+  // ── Standard tasks ──
   lines.push(`# Task: ${task.label}`)
   lines.push('')
   lines.push(task.instruction)
 
-  const job = jobs.find((j) => j.id === jobId)
   if (job) {
     lines.push('')
     lines.push('---')
@@ -195,6 +265,7 @@ export default function AssistantPage() {
   const [response, setResponse] = useState('')
   const [genStatus, setGenStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const task = TASKS.find((t) => t.id === taskId)
@@ -242,13 +313,14 @@ export default function AssistantPage() {
     })
   }
 
-  const handleGenerate = useCallback(async (builtPrompt: string) => {
+  const handleGenerate = useCallback(async (builtPrompt: string, isMatchTask: boolean) => {
     abortRef.current?.abort()
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
     setResponse('')
     setErrorMsg('')
+    setMatchResult(null)
     setGenStatus('loading')
 
     const ERROR_PREFIX = '__STREAM_ERROR__:'
@@ -275,11 +347,26 @@ export default function AssistantPage() {
         const { done, value } = await reader.read()
         if (done) break
         acc += dec.decode(value, { stream: true })
-        if (!acc.startsWith(ERROR_PREFIX)) setResponse(acc)
+        if (!acc.startsWith(ERROR_PREFIX) && !isMatchTask) setResponse(acc)
       }
 
       if (acc.startsWith(ERROR_PREFIX)) {
         throw new Error(acc.slice(ERROR_PREFIX.length))
+      }
+
+      if (isMatchTask) {
+        const jsonStart = acc.indexOf('{')
+        const jsonEnd = acc.lastIndexOf('}')
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          try {
+            const parsed = JSON.parse(acc.slice(jsonStart, jsonEnd + 1)) as MatchResult
+            setMatchResult(parsed)
+          } catch {
+            setResponse(acc)
+          }
+        } else {
+          setResponse(acc)
+        }
       }
 
       setGenStatus('done')
@@ -295,7 +382,13 @@ export default function AssistantPage() {
     [task, jobId, jobs, selectedResourceIds, resources, customInstructions],
   )
 
-  const promptIsEmpty = !task || (!jobId && selectedResourceIds.size === 0 && !customInstructions.trim())
+  const isMatchTask = taskId === 'find_best_resume'
+  const resumeDocs = useMemo(
+    () => resources.filter((r) => r.type === 'resume' || r.type === 'cover_letter'),
+    [resources],
+  )
+  const matchTaskReady = isMatchTask && !!jobId && resumeDocs.length > 0
+  const promptIsEmpty = !task || (isMatchTask ? !matchTaskReady : (!jobId && selectedResourceIds.size === 0 && !customInstructions.trim()))
 
   if (!ready) {
     return (
@@ -322,7 +415,7 @@ export default function AssistantPage() {
             {TASKS.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTaskId(t.id)}
+                onClick={() => { setTaskId(t.id); setMatchResult(null); setResponse(''); setGenStatus('idle') }}
                 className={`text-left px-3 py-2.5 rounded-xl border text-xs font-medium transition-all ${
                   taskId === t.id
                     ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
@@ -363,82 +456,104 @@ export default function AssistantPage() {
 
         {/* Resource picker */}
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <SectionLabel>Resources</SectionLabel>
-            {selectedResourceIds.size > 0 && (
-              <button
-                onClick={() => setSelectedResourceIds(new Set())}
-                className="text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
-              >
-                Clear {selectedResourceIds.size} selected
-              </button>
-            )}
-          </div>
-
-          {resources.length === 0 ? (
-            <p className="text-xs text-zinc-400">
-              No resources yet.{' '}
-              <a href="/resources" className="text-blue-500 hover:underline">Add one →</a>
-            </p>
+          {isMatchTask ? (
+            <>
+              <SectionLabel>Documents</SectionLabel>
+              {resumeDocs.length === 0 ? (
+                <p className="text-xs text-zinc-400">
+                  No resumes or cover letters yet.{' '}
+                  <a href="/resources" className="text-blue-500 hover:underline">Add one →</a>
+                </p>
+              ) : (
+                <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 space-y-1">
+                  <p className="text-xs font-medium text-blue-700">
+                    {resumeDocs.length} document{resumeDocs.length !== 1 ? 's' : ''} will be scored automatically
+                  </p>
+                  {resumeDocs.map((r) => (
+                    <p key={r.id} className="text-[11px] text-blue-600 truncate">
+                      · {r.title}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
             <>
-              {/* Resource search */}
-              <div className="relative mb-2">
-                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-                <input
-                  ref={resourceSearchRef}
-                  value={resourceSearch}
-                  onChange={(e) => setResourceSearch(e.target.value)}
-                  placeholder="Filter resources…"
-                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
-                />
-              </div>
-
-              {/* Resource list */}
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-                {Object.entries(groupedResources).map(([groupLabel, items]) => (
-                  <div key={groupLabel}>
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
-                      {groupLabel}
-                    </p>
-                    <div className="space-y-1">
-                      {items!.map((r) => (
-                        <label
-                          key={r.id}
-                          className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                            selectedResourceIds.has(r.id)
-                              ? 'bg-blue-50 border border-blue-200'
-                              : 'hover:bg-zinc-50 border border-transparent'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedResourceIds.has(r.id)}
-                            onChange={() => toggleResource(r.id)}
-                            className="mt-0.5 shrink-0 accent-blue-600"
-                          />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-zinc-900 truncate leading-snug">
-                              {r.title}
-                            </p>
-                            {r.company && (
-                              <p className="text-[10px] text-zinc-400 truncate">{r.company}</p>
-                            )}
-                            {!r.contentText && !r.notes && (
-                              <p className="text-[10px] text-amber-500">no text content</p>
-                            )}
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {filteredResources.length === 0 && (
-                  <p className="text-xs text-zinc-400 py-2">No resources match.</p>
+              <div className="flex items-center justify-between mb-2">
+                <SectionLabel>Resources</SectionLabel>
+                {selectedResourceIds.size > 0 && (
+                  <button
+                    onClick={() => setSelectedResourceIds(new Set())}
+                    className="text-[10px] text-zinc-400 hover:text-zinc-600 transition-colors"
+                  >
+                    Clear {selectedResourceIds.size} selected
+                  </button>
                 )}
               </div>
+
+              {resources.length === 0 ? (
+                <p className="text-xs text-zinc-400">
+                  No resources yet.{' '}
+                  <a href="/resources" className="text-blue-500 hover:underline">Add one →</a>
+                </p>
+              ) : (
+                <>
+                  <div className="relative mb-2">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      ref={resourceSearchRef}
+                      value={resourceSearch}
+                      onChange={(e) => setResourceSearch(e.target.value)}
+                      placeholder="Filter resources…"
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-zinc-200 rounded-lg bg-white text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {Object.entries(groupedResources).map(([groupLabel, items]) => (
+                      <div key={groupLabel}>
+                        <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                          {groupLabel}
+                        </p>
+                        <div className="space-y-1">
+                          {items!.map((r) => (
+                            <label
+                              key={r.id}
+                              className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                                selectedResourceIds.has(r.id)
+                                  ? 'bg-blue-50 border border-blue-200'
+                                  : 'hover:bg-zinc-50 border border-transparent'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedResourceIds.has(r.id)}
+                                onChange={() => toggleResource(r.id)}
+                                className="mt-0.5 shrink-0 accent-blue-600"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-zinc-900 truncate leading-snug">
+                                  {r.title}
+                                </p>
+                                {r.company && (
+                                  <p className="text-[10px] text-zinc-400 truncate">{r.company}</p>
+                                )}
+                                {!r.contentText && !r.notes && (
+                                  <p className="text-[10px] text-amber-500">no text content</p>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {filteredResources.length === 0 && (
+                      <p className="text-xs text-zinc-400 py-2">No resources match.</p>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -527,25 +642,23 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* AI Response panel */}
+        {/* AI Response / Match Results panel */}
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
             <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-zinc-900">AI Response</h2>
+              <h2 className="text-sm font-semibold text-zinc-900">
+                {isMatchTask ? 'Resume Match Results' : 'AI Response'}
+              </h2>
               {genStatus === 'loading' && (
                 <span className="flex items-center gap-1.5 text-xs text-blue-600">
                   <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                   </svg>
-                  Generating…
+                  {isMatchTask ? 'Analyzing…' : 'Generating…'}
                 </span>
               )}
-              {genStatus === 'done' && (
-                <span className="text-xs text-emerald-600">Done</span>
-              )}
-              {genStatus === 'error' && (
-                <span className="text-xs text-red-500">Error</span>
-              )}
+              {genStatus === 'done' && <span className="text-xs text-emerald-600">Done</span>}
+              {genStatus === 'error' && <span className="text-xs text-red-500">Error</span>}
             </div>
             <div className="flex items-center gap-2">
               {genStatus === 'loading' && (
@@ -556,58 +669,192 @@ export default function AssistantPage() {
                   Stop
                 </button>
               )}
-              {(genStatus === 'done' || response) && (
+              {!isMatchTask && (genStatus === 'done' || response) && (
                 <CopyButton text={response} label="Copy Response" />
               )}
               <button
-                onClick={() => handleGenerate(prompt)}
+                onClick={() => handleGenerate(prompt, isMatchTask)}
                 disabled={promptIsEmpty || genStatus === 'loading'}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
                 </svg>
-                Generate
+                {isMatchTask ? 'Analyze' : 'Generate'}
               </button>
             </div>
           </div>
 
-          {genStatus === 'idle' && !response && (
+          {/* Idle / empty state */}
+          {genStatus === 'idle' && !response && !matchResult && (
             <div className="px-5 py-10 flex flex-col items-center text-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
-                  <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
-                </svg>
+                {isMatchTask ? (
+                  <span className="text-xl">🏆</span>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
+                    <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69h6.06l-4.9 3.56a1 1 0 0 0-.36 1.12L17.51 20 12 16.44 6.49 20l1.88-5.87a1 1 0 0 0-.36-1.12L3.11 9.45h6.06a1 1 0 0 0 .95-.69L12 3z" />
+                  </svg>
+                )}
               </div>
               <div>
-                <p className="text-sm font-medium text-zinc-600">Ready to generate</p>
+                <p className="text-sm font-medium text-zinc-600">
+                  {isMatchTask ? 'Ready to analyze' : 'Ready to generate'}
+                </p>
                 <p className="text-xs text-zinc-400 mt-1 max-w-sm">
-                  Build your prompt on the left, then click Generate. Make sure{' '}
-                  <code className="font-mono bg-zinc-100 px-1 rounded">ANTHROPIC_API_KEY</code>{' '}
-                  is set in <code className="font-mono bg-zinc-100 px-1 rounded">.env.local</code>.
+                  {isMatchTask
+                    ? 'Select a job on the left, then click Analyze. Claude will score each resume against the role.'
+                    : <>Build your prompt on the left, then click Generate. Make sure{' '}
+                        <code className="font-mono bg-zinc-100 px-1 rounded">ANTHROPIC_API_KEY</code>{' '}
+                        is set in <code className="font-mono bg-zinc-100 px-1 rounded">.env.local</code>.</>
+                  }
                 </p>
               </div>
             </div>
           )}
 
+          {/* Error state */}
           {genStatus === 'error' && (
             <div className="px-5 py-6 flex items-start gap-3 bg-red-50/50">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500 mt-0.5 shrink-0">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
               <div>
-                <p className="text-sm font-medium text-red-700">Generation failed</p>
+                <p className="text-sm font-medium text-red-700">Failed</p>
                 <p className="text-xs text-red-500 mt-0.5">{errorMsg}</p>
               </div>
             </div>
           )}
 
-          {(response || genStatus === 'loading') && (
+          {/* Standard response */}
+          {!isMatchTask && (response || genStatus === 'loading') && (
             <pre className="px-5 py-4 text-xs text-zinc-700 font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-[60vh] overflow-y-auto bg-zinc-50/40">
               {response}
               {genStatus === 'loading' && (
                 <span className="inline-block w-1.5 h-3.5 bg-blue-500 animate-pulse ml-0.5 align-text-bottom" />
               )}
+            </pre>
+          )}
+
+          {/* Match task loading skeleton */}
+          {isMatchTask && genStatus === 'loading' && (
+            <div className="px-5 py-6 space-y-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="rounded-xl border border-zinc-100 p-4 space-y-2 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 w-40 bg-zinc-100 rounded" />
+                    <div className="h-6 w-12 bg-zinc-100 rounded-full" />
+                  </div>
+                  <div className="h-1.5 w-full bg-zinc-100 rounded-full" />
+                  <div className="h-3 w-3/4 bg-zinc-100 rounded" />
+                  <div className="h-3 w-1/2 bg-zinc-100 rounded" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Match results */}
+          {isMatchTask && matchResult && genStatus !== 'loading' && (
+            <div className="px-5 py-5 space-y-4">
+              {matchResult.matches.slice(0, 3).map((match, idx) => {
+                const resource = resources.find(
+                  (r) => r.title.toLowerCase() === match.title.toLowerCase(),
+                )
+                const scoreColor =
+                  match.score >= 80
+                    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    : match.score >= 60
+                    ? 'text-amber-700 bg-amber-50 border-amber-200'
+                    : 'text-red-600 bg-red-50 border-red-200'
+                const barColor =
+                  match.score >= 80 ? 'bg-emerald-500' : match.score >= 60 ? 'bg-amber-500' : 'bg-red-400'
+                const isSelected = resource && selectedResourceIds.has(resource.id)
+
+                return (
+                  <div key={idx} className="rounded-xl border border-zinc-200 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-zinc-400">#{idx + 1}</span>
+                          <p className="text-sm font-semibold text-zinc-900 truncate">{match.title}</p>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${barColor}`}
+                              style={{ width: `${match.score}%` }}
+                            />
+                          </div>
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${scoreColor}`}>
+                            {match.score}/100
+                          </span>
+                        </div>
+                      </div>
+                      {resource && (
+                        <button
+                          onClick={() => toggleResource(resource.id)}
+                          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            isSelected
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-zinc-100 text-zinc-700 hover:bg-blue-50 hover:text-blue-700'
+                          }`}
+                        >
+                          {isSelected ? '✓ In context' : 'Use this'}
+                        </button>
+                      )}
+                    </div>
+
+                    {match.reasons.length > 0 && (
+                      <ul className="space-y-1">
+                        {match.reasons.map((r, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-zinc-600">
+                            <span className="mt-0.5 text-emerald-500 shrink-0">✓</span>
+                            {r}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {match.missingKeywords.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                          Missing keywords
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {match.missingKeywords.map((kw) => (
+                            <span key={kw} className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[11px] font-medium border border-amber-100">
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Suggested Missing Skills */}
+              {matchResult.suggestedSkills.length > 0 && (
+                <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-4">
+                  <p className="text-xs font-semibold text-violet-700 mb-2">
+                    Suggested Missing Skills
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {matchResult.suggestedSkills.map((skill) => (
+                      <span key={skill} className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white border border-violet-200 text-violet-700 text-xs font-medium shadow-sm">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Match task fallback: raw response if JSON parse failed */}
+          {isMatchTask && !matchResult && response && genStatus !== 'loading' && (
+            <pre className="px-5 py-4 text-xs text-zinc-700 font-mono leading-relaxed whitespace-pre-wrap overflow-x-auto max-h-[60vh] overflow-y-auto bg-zinc-50/40">
+              {response}
             </pre>
           )}
         </div>
