@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useStore } from '@/lib/store'
 import {
   STATUS_LABELS,
@@ -252,7 +254,8 @@ function buildPrompt(
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function AssistantPage() {
+function AssistantPageContent() {
+  const searchParams = useSearchParams()
   const { jobs, resources, ready } = useStore()
 
   const [taskId, setTaskId] = useState<TaskId>('analyze_fit')
@@ -267,6 +270,16 @@ export default function AssistantPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const paramsApplied = useRef(false)
+
+  useEffect(() => {
+    if (!ready || paramsApplied.current) return
+    paramsApplied.current = true
+    const taskParam = searchParams.get('task') as TaskId | null
+    const jobParam = searchParams.get('jobId')
+    if (taskParam && TASKS.find((t) => t.id === taskParam)) setTaskId(taskParam)
+    if (jobParam) setJobId(jobParam)
+  }, [ready, searchParams])
 
   const task = TASKS.find((t) => t.id === taskId)
 
@@ -860,5 +873,13 @@ export default function AssistantPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function AssistantPage() {
+  return (
+    <Suspense>
+      <AssistantPageContent />
+    </Suspense>
   )
 }

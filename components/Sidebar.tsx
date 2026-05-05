@@ -80,6 +80,14 @@ function IconSparkle() {
   )
 }
 
+function IconZap() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  )
+}
+
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
   { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
@@ -89,6 +97,7 @@ const NAV_ITEMS = [
   { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
   { label: 'Analytics', href: '/analytics', icon: <IconBarChart />, shortcut: '⌘7' },
   { label: 'AI Assistant', href: '/assistant', icon: <IconSparkle />, shortcut: '⌘8' },
+  { label: 'Copilot', href: '/copilot', icon: <IconZap />, shortcut: '⌘9' },
 ]
 
 export function Sidebar() {
@@ -103,6 +112,7 @@ export function Sidebar() {
   useHotkey('6', () => router.push('/import'), { meta: true })
   useHotkey('7', () => router.push('/analytics'), { meta: true })
   useHotkey('8', () => router.push('/assistant'), { meta: true })
+  useHotkey('9', () => router.push('/copilot'), { meta: true })
 
   return (
     <aside className="w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200">
