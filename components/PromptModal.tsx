@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import type { PromptEntry } from '@/lib/types'
 
 interface FormState {
@@ -58,12 +58,14 @@ export function PromptModal({
 
   useEffect(() => {
     if (!isOpen) return
-    setForm(
-      initialData
-        ? { title: initialData.title, category: initialData.category, body: initialData.body }
-        : EMPTY,
-    )
-    setErrors({})
+    startTransition(() => {
+      setForm(
+        initialData
+          ? { title: initialData.title, category: initialData.category, body: initialData.body }
+          : EMPTY,
+      )
+      setErrors({})
+    })
   }, [isOpen, initialData])
 
   useEffect(() => {

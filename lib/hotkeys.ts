@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 export function useHotkey(
   key: string,
@@ -8,7 +8,7 @@ export function useHotkey(
   options: { meta?: boolean } = {},
 ) {
   const cbRef = useRef(callback)
-  cbRef.current = callback
+  useLayoutEffect(() => { cbRef.current = callback })
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

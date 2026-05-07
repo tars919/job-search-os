@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import type { Job, ResearchNote } from '@/lib/types'
 import { STATUS_LABELS } from '@/lib/types'
 
@@ -68,12 +68,14 @@ export function NoteModal({
 
   useEffect(() => {
     if (!isOpen) return
-    setForm(
-      initialData
-        ? { company: initialData.company, jobId: initialData.jobId ?? '', content: initialData.content }
-        : EMPTY,
-    )
-    setErrors({})
+    startTransition(() => {
+      setForm(
+        initialData
+          ? { company: initialData.company, jobId: initialData.jobId ?? '', content: initialData.content }
+          : EMPTY,
+      )
+      setErrors({})
+    })
   }, [isOpen, initialData])
 
   useEffect(() => {

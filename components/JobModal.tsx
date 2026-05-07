@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { JOB_STATUSES, STATUS_LABELS, PRIORITIES, PRIORITY_LABELS } from '@/lib/types'
 import type { Job, JobStatus, Priority } from '@/lib/types'
 
@@ -92,12 +92,14 @@ export function JobModal({ isOpen, onClose, onSave, initialData }: JobModalProps
 
   useEffect(() => {
     if (!isOpen) return
-    setForm(
-      initialData
-        ? jobToForm(initialData)
-        : { ...EMPTY_FORM, savedAt: new Date().toISOString().slice(0, 10) },
-    )
-    setErrors({})
+    startTransition(() => {
+      setForm(
+        initialData
+          ? jobToForm(initialData)
+          : { ...EMPTY_FORM, savedAt: new Date().toISOString().slice(0, 10) },
+      )
+      setErrors({})
+    })
   }, [isOpen, initialData])
 
   useEffect(() => {

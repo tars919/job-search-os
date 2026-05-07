@@ -1,11 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useStore } from '@/lib/store'
-import { STATUS_LABELS, STATUS_COLORS } from '@/lib/types'
+import { STATUS_LABELS, STATUS_COLORS, OUTREACH_STATUS_LABELS, OUTREACH_STATUS_COLORS } from '@/lib/types'
 import {
   generateActions,
+  generateOutreachActions,
+  generateInterviewPrepActions,
+  generateCalendarActions,
+  generateEmailActions,
+  markDoneTransition,
   ACTION_CATEGORY,
   type CopilotAction,
   type ActionType,
@@ -23,8 +28,8 @@ function saveSnoozed(s: Record<string, string>) {
   localStorage.setItem(SNOOZE_KEY, JSON.stringify(s))
 }
 
-function isSnoozed(map: Record<string, string>, jobId: string): boolean {
-  const until = map[jobId]
+function isSnoozed(map: Record<string, string>, key: string): boolean {
+  const until = map[key]
   return !!until && new Date(until) > new Date()
 }
 
@@ -56,9 +61,41 @@ const ACTION_ICON: Record<ActionType, string> = {
   complete_oa: '💻',
   prep_interview: '🎤',
   follow_up: '💬',
+  follow_up_outreach: '📨',
+  prep_due: '📋',
+  event_due: '📅',
+  email_action: '📧',
   tailor_resume: '✏️',
   research_company: '🔍',
   revisit: '🔄',
+}
+
+function doneTitle(actionType: ActionType): string {
+  switch (actionType) {
+    case 'apply_today':
+    case 'apply_soon':
+      return 'Mark applied'
+    case 'tailor_resume':
+    case 'research_company':
+      return 'Mark ready to apply'
+    case 'complete_hirevue':
+    case 'complete_oa':
+      return 'Mark submitted → recruiter screen'
+    case 'revisit':
+      return 'Mark closed'
+    case 'follow_up':
+      return 'Log follow-up'
+    case 'follow_up_outreach':
+      return 'Log follow-up sent'
+    case 'prep_due':
+      return 'Mark prep done'
+    case 'event_due':
+      return 'Mark complete'
+    case 'email_action':
+      return 'Mark processed'
+    default:
+      return 'Mark done'
+  }
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -105,17 +142,30 @@ function IconCheck() {
   )
 }
 
+function IconReply() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="9 17 4 12 9 7" />
+      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+    </svg>
+  )
+}
+
 // ─── Action card ──────────────────────────────────────────────────────────────
 
 interface CardProps {
   action: CopilotAction
-  onSnooze: (id: string) => void
-  onDone: (id: string) => void
+  onSnooze: (key: string) => void
+  onDone: (key: string, actionType: ActionType) => void
 }
 
 function ActionCard({ action, onSnooze, onDone }: CardProps) {
   const router = useRouter()
   const style = urgencyStyle(action.urgencyScore)
+  const isFollowUp = action.actionType === 'follow_up' || action.actionType === 'follow_up_outreach'
+  const isOutreach = action.actionType === 'follow_up_outreach'
+  const isInterview = action.actionType === 'prep_due'
+  const entityKey = action.emailId ?? action.eventId ?? action.interviewId ?? action.outreachId ?? action.jobId
 
   return (
     <div className="flex items-start gap-4 p-4 rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 transition-colors group">
@@ -135,20 +185,33 @@ function ActionCard({ action, onSnooze, onDone }: CardProps) {
         </div>
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className="text-xs font-medium text-zinc-600">{action.company}</span>
-          <span className="text-zinc-300 text-xs">·</span>
-          <span className="text-xs text-zinc-400 truncate max-w-[200px]">{action.role}</span>
-          <span
-            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[action.status]}`}
-          >
-            {STATUS_LABELS[action.status]}
-          </span>
+          {action.role && (
+            <>
+              <span className="text-zinc-300 text-xs">·</span>
+              <span className="text-xs text-zinc-400 truncate max-w-[200px]">{action.role}</span>
+            </>
+          )}
+          {action.status && (
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[action.status]}`}
+            >
+              {STATUS_LABELS[action.status]}
+            </span>
+          )}
+          {action.outreachStatus && (
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${OUTREACH_STATUS_COLORS[action.outreachStatus]}`}
+            >
+              {OUTREACH_STATUS_LABELS[action.outreachStatus]}
+            </span>
+          )}
         </div>
         <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{action.why}</p>
       </div>
 
       {/* Quick actions */}
       <div className="shrink-0 flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-        {action.url && (
+        {!isOutreach && !isInterview && action.url && (
           <button
             onClick={() => window.open(action.url, '_blank', 'noopener,noreferrer')}
             title="Open job posting"
@@ -157,33 +220,50 @@ function ActionCard({ action, onSnooze, onDone }: CardProps) {
             <IconExternal />
           </button>
         )}
+        {!isOutreach && !isInterview && (
+          <button
+            onClick={() => router.push(`/assistant?task=tailor_bullets&jobId=${action.jobId}`)}
+            title="Tailor resume with AI"
+            className="p-2 rounded-lg text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            <IconDoc />
+          </button>
+        )}
         <button
-          onClick={() => router.push(`/assistant?task=tailor_bullets&jobId=${action.jobId}`)}
-          title="Tailor resume with AI"
-          className="p-2 rounded-lg text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-        >
-          <IconDoc />
-        </button>
-        <button
-          onClick={() => router.push(`/assistant?task=draft_recruiter_message&jobId=${action.jobId}`)}
-          title="Draft recruiter message"
+          onClick={() => {
+            if (isInterview) {
+              const params = new URLSearchParams({ task: 'gen_interview_questions' })
+              if (action.jobId) params.set('jobId', action.jobId)
+              if (action.interviewId) params.set('interviewId', action.interviewId)
+              router.push(`/assistant?${params.toString()}`)
+            } else if (isOutreach) {
+              router.push(`/assistant?task=draft_recruiter_message${action.outreachId ? `&outreachId=${action.outreachId}` : ''}`)
+            } else {
+              router.push(`/assistant?task=draft_recruiter_message&jobId=${action.jobId}`)
+            }
+          }}
+          title={isInterview ? 'Generate practice questions' : 'Draft recruiter message'}
           className="p-2 rounded-lg text-zinc-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
         >
-          <IconChat />
+          {isInterview ? <IconDoc /> : <IconChat />}
         </button>
         <button
-          onClick={() => onSnooze(action.jobId)}
+          onClick={() => onSnooze(entityKey)}
           title="Snooze 24 hours"
           className="p-2 rounded-lg text-zinc-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
         >
           <IconSnooze />
         </button>
         <button
-          onClick={() => onDone(action.jobId)}
-          title="Mark complete"
-          className="p-2 rounded-lg text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+          onClick={() => onDone(entityKey, action.actionType)}
+          title={doneTitle(action.actionType)}
+          className={`p-2 rounded-lg transition-colors ${
+            isFollowUp
+              ? 'text-zinc-400 hover:text-teal-600 hover:bg-teal-50'
+              : 'text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50'
+          }`}
         >
-          <IconCheck />
+          {isFollowUp ? <IconReply /> : <IconCheck />}
         </button>
       </div>
     </div>
@@ -193,18 +273,27 @@ function ActionCard({ action, onSnooze, onDone }: CardProps) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CopilotPage() {
-  const { jobs, ready, updateJob } = useStore()
+  const { jobs, outreach, interviews, events, emails, ready, updateJob, updateOutreach, updateInterview, updateEvent, updateEmail } = useStore()
   const [filter, setFilter] = useState<Filter>('all')
-  const [snoozed, setSnoozed] = useState<Record<string, string>>({})
+  const [snoozed, setSnoozed] = useState<Record<string, string>>(() => loadSnoozed())
 
-  useEffect(() => {
-    setSnoozed(loadSnoozed())
-  }, [])
-
-  const allActions = useMemo(
-    () => (ready ? generateActions(jobs).filter((a) => !isSnoozed(snoozed, a.jobId)) : []),
-    [jobs, ready, snoozed],
-  )
+  const allActions = useMemo(() => {
+    if (!ready) return []
+    const jobActions = generateActions(jobs).filter((a) => !isSnoozed(snoozed, a.jobId))
+    const outreachActions = generateOutreachActions(outreach).filter(
+      (a) => !isSnoozed(snoozed, a.outreachId ?? ''),
+    )
+    const interviewActions = generateInterviewPrepActions(interviews).filter(
+      (a) => !isSnoozed(snoozed, a.interviewId ?? ''),
+    )
+    const calendarActions = generateCalendarActions(events).filter(
+      (a) => !isSnoozed(snoozed, a.eventId ?? ''),
+    )
+    const emailActions = generateEmailActions(emails).filter(
+      (a) => !isSnoozed(snoozed, a.emailId ?? ''),
+    )
+    return [...jobActions, ...outreachActions, ...interviewActions, ...calendarActions, ...emailActions].sort((a, b) => b.urgencyScore - a.urgencyScore)
+  }, [jobs, outreach, interviews, events, emails, ready, snoozed])
 
   const filtered = useMemo(
     () => (filter === 'all' ? allActions : allActions.filter((a) => ACTION_CATEGORY[a.actionType] === filter)),
@@ -222,15 +311,26 @@ export default function CopilotPage() {
     [allActions],
   )
 
-  function handleSnooze(jobId: string) {
+  function handleSnooze(key: string) {
     const until = new Date(Date.now() + 86_400_000).toISOString()
-    const next = { ...snoozed, [jobId]: until }
+    const next = { ...snoozed, [key]: until }
     setSnoozed(next)
     saveSnoozed(next)
   }
 
-  function handleDone(jobId: string) {
-    updateJob(jobId, { status: 'closed' })
+  function handleDone(entityKey: string, actionType: ActionType) {
+    if (actionType === 'follow_up_outreach') {
+      updateOutreach(entityKey, { status: 'sent', followUpDate: undefined })
+    } else if (actionType === 'prep_due') {
+      updateInterview(entityKey, { status: 'completed' })
+    } else if (actionType === 'event_due') {
+      updateEvent(entityKey, { status: 'completed' })
+    } else if (actionType === 'email_action') {
+      updateEmail(entityKey, { status: 'processed' })
+    } else {
+      updateJob(entityKey, markDoneTransition(actionType))
+      if (actionType === 'prep_interview') handleSnooze(entityKey)
+    }
   }
 
   if (!ready) {
@@ -317,7 +417,7 @@ export default function CopilotPage() {
         <div className="space-y-3">
           {filtered.map((action) => (
             <ActionCard
-              key={action.jobId}
+              key={`${action.emailId ?? action.eventId ?? action.interviewId ?? action.outreachId ?? action.jobId}-${action.actionType}`}
               action={action}
               onSnooze={handleSnooze}
               onDone={handleDone}

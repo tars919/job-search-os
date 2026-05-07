@@ -1,0 +1,530 @@
+'use client'
+
+import { useRef, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useStore } from '@/lib/store'
+import {
+  EMAIL_TYPES,
+  EMAIL_TYPE_LABELS,
+  EMAIL_TYPE_COLORS,
+  EMAIL_TYPE_ICONS,
+  EMAIL_STATUSES,
+  EMAIL_STATUS_LABELS,
+  EMAIL_STATUS_COLORS,
+  type EmailMessage,
+  type EmailType,
+  type EmailStatus,
+} from '@/lib/types'
+import { parseEmailContent } from '@/lib/emailParser'
+
+// ─── Ingest panel ─────────────────────────────────────────────────────────────
+
+interface IngestPanelProps {
+  jobs: ReturnType<typeof useStore>['jobs']
+  onAdd: (email: Omit<EmailMessage, 'id' | 'createdAt' | 'updatedAt'>) => void
+}
+
+function IngestPanel({ jobs, onAdd }: IngestPanelProps) {
+  const [raw, setRaw] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [parsed, setParsed] = useState<ReturnType<typeof parseEmailContent> | null>(null)
+  const [stage, setStage] = useState<'input' | 'confirm'>('input')
+  // Editable fields in confirm stage
+  const [emailType, setEmailType] = useState<EmailType>('other')
+  const [company, setCompany] = useState('')
+  const [subject, setSubject] = useState('')
+  const [senderName, setSenderName] = useState('')
+  const [senderEmail, setSenderEmail] = useState('')
+  const [receivedAt, setReceivedAt] = useState('')
+  const [detectedAction, setDetectedAction] = useState('')
+  const [relatedJobId, setRelatedJobId] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => setRaw((ev.target?.result as string) ?? '')
+    reader.readAsText(file)
+  }
+
+  function handleParse() {
+    if (!raw.trim()) return
+    const result = parseEmailContent(raw, fileName || undefined)
+    setParsed(result)
+    setEmailType(result.emailType)
+    setCompany(result.company)
+    setSubject(result.subject)
+    setSenderName(result.senderName)
+    setSenderEmail(result.senderEmail)
+    setReceivedAt(result.receivedAt)
+    setDetectedAction(result.detectedAction)
+    setRelatedJobId('')
+    setStage('confirm')
+  }
+
+  function handleSave() {
+    if (!parsed) return
+    onAdd({
+      body: parsed.body || raw,
+      emailType,
+      company: company || undefined,
+      subject: subject || undefined,
+      senderName: senderName || undefined,
+      senderEmail: senderEmail || undefined,
+      receivedAt: receivedAt || undefined,
+      detectedAction: detectedAction || undefined,
+      detectedInterviewDate: parsed.detectedInterviewDate,
+      detectedDeadline: parsed.detectedDeadline,
+      relatedJobId: relatedJobId || undefined,
+      status: 'unread',
+    })
+    setRaw('')
+    setFileName('')
+    setParsed(null)
+    setStage('input')
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  function handleBack() { setStage('input'); setParsed(null) }
+
+  const field = 'w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-white'
+  const labelCls = 'block text-xs font-medium text-zinc-500 mb-1'
+
+  if (stage === 'confirm' && parsed) {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-zinc-900">Review Parsed Email</h2>
+          <button onClick={handleBack} className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">← Back</button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Email Type</label>
+            <select value={emailType} onChange={(e) => setEmailType(e.target.value as EmailType)} className={field}>
+              {EMAIL_TYPES.map((t) => <option key={t} value={t}>{EMAIL_TYPE_LABELS[t]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Company</label>
+            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Stripe" className={field} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Sender Name</label>
+            <input value={senderName} onChange={(e) => setSenderName(e.target.value)} placeholder="Alex Chen" className={field} />
+          </div>
+          <div>
+            <label className={labelCls}>Sender Email</label>
+            <input value={senderEmail} onChange={(e) => setSenderEmail(e.target.value)} placeholder="recruiter@company.com" className={field} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>Subject</label>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className={field} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Received Date</label>
+            <input type="date" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className={field} />
+          </div>
+          <div>
+            <label className={labelCls}>Link to Job</label>
+            <select value={relatedJobId} onChange={(e) => setRelatedJobId(e.target.value)} className={field}>
+              <option value="">None</option>
+              {jobs.map((j) => <option key={j.id} value={j.id}>{j.company} — {j.role}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className={labelCls}>Detected Action</label>
+          <input value={detectedAction} onChange={(e) => setDetectedAction(e.target.value)} className={field} />
+        </div>
+
+        {(parsed.detectedInterviewDate || parsed.detectedDeadline) && (
+          <div className="flex gap-3 text-xs">
+            {parsed.detectedInterviewDate && (
+              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 font-medium">
+                📅 Interview date: {parsed.detectedInterviewDate}
+              </span>
+            )}
+            {parsed.detectedDeadline && (
+              <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">
+                ⏰ Deadline: {parsed.detectedDeadline}
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={handleBack} className="px-4 py-2 text-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors">Cancel</button>
+          <button onClick={handleSave} className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">Save Email</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-zinc-900">Add Email</h2>
+        <span className="text-xs text-zinc-400">Paste content or upload .txt / .eml</span>
+      </div>
+
+      <textarea
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        rows={6}
+        placeholder={'Paste the full email here — headers + body, or just the body...\n\nFrom: recruiter@stripe.com\nSubject: Interview invitation\n\nHi, we\'d love to schedule an interview...'}
+        className="w-full px-3 py-2.5 text-sm font-mono rounded-lg border border-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none text-zinc-700 placeholder-zinc-400"
+      />
+
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-600 border border-zinc-200 rounded-lg hover:bg-zinc-50 cursor-pointer transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          {fileName || 'Upload file'}
+          <input ref={fileRef} type="file" accept=".txt,.eml" onChange={handleFile} className="hidden" />
+        </label>
+        {fileName && <span className="text-xs text-zinc-500 truncate max-w-[160px]">{fileName}</span>}
+        <div className="flex-1" />
+        <button
+          onClick={handleParse}
+          disabled={!raw.trim()}
+          className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+        >
+          Parse & Review →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Email card ───────────────────────────────────────────────────────────────
+
+interface EmailCardProps {
+  email: EmailMessage
+  jobs: ReturnType<typeof useStore>['jobs']
+  onUpdate: (id: string, patch: Partial<Omit<EmailMessage, 'id' | 'createdAt'>>) => void
+  onDelete: (id: string) => void
+  onAddEvent: ReturnType<typeof useStore>['addEvent']
+}
+
+function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardProps) {
+  const router = useRouter()
+  const [showBody, setShowBody] = useState(false)
+  const [linkJob, setLinkJob] = useState(false)
+
+  function handleCreateEvent() {
+    const date = email.detectedInterviewDate ?? email.detectedDeadline ?? email.receivedAt
+    if (!date) return
+    onAddEvent({
+      title: email.subject ?? `${email.company} — ${EMAIL_TYPE_LABELS[email.emailType]}`,
+      eventType: email.emailType === 'interview_invite' ? 'interview'
+        : email.emailType === 'oa_link' ? 'oa_due'
+        : 'other',
+      company: email.company,
+      relatedJobId: email.relatedJobId,
+      startDateTime: date,
+      status: 'upcoming',
+    })
+    onUpdate(email.id, { status: 'action_taken' })
+  }
+
+  function handleReply() {
+    const params = new URLSearchParams({ task: 'draft_email_reply', emailId: email.id })
+    if (email.relatedJobId) params.set('jobId', email.relatedJobId)
+    router.push(`/assistant?${params.toString()}`)
+  }
+
+  function handleClassify() {
+    router.push(`/assistant?task=classify_email&emailId=${email.id}`)
+  }
+
+  const linkedJob = jobs.find((j) => j.id === email.relatedJobId)
+  const isUnread = email.status === 'unread'
+
+  return (
+    <div className={`rounded-xl border bg-white p-4 space-y-3 transition-colors ${isUnread ? 'border-blue-200 bg-blue-50/20' : 'border-zinc-200'}`}>
+      {/* Top row */}
+      <div className="flex items-start gap-3">
+        <span className="text-xl shrink-0 mt-0.5">{EMAIL_TYPE_ICONS[email.emailType]}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {email.subject ? (
+              <p className="text-sm font-semibold text-zinc-900 leading-snug truncate max-w-md">{email.subject}</p>
+            ) : (
+              <p className="text-sm font-semibold text-zinc-400 italic">No subject</p>
+            )}
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${EMAIL_TYPE_COLORS[email.emailType]}`}>
+              {EMAIL_TYPE_LABELS[email.emailType]}
+            </span>
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${EMAIL_STATUS_COLORS[email.status]}`}>
+              {EMAIL_STATUS_LABELS[email.status]}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500 flex-wrap">
+            {email.company && <span className="font-medium text-zinc-700">{email.company}</span>}
+            {email.senderName && <span>· {email.senderName}</span>}
+            {email.senderEmail && <span className="text-zinc-400">&lt;{email.senderEmail}&gt;</span>}
+            {email.receivedAt && <span className="text-zinc-400 ml-auto">{email.receivedAt}</span>}
+          </div>
+        </div>
+        <div className="shrink-0 flex items-center gap-0.5">
+          <button onClick={() => onDelete(email.id)} title="Delete" className="p-1.5 rounded-lg text-zinc-300 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Detected action */}
+      {email.detectedAction && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-zinc-400">Action:</span>
+          <span className="font-medium text-zinc-700">{email.detectedAction}</span>
+        </div>
+      )}
+
+      {/* Detected dates */}
+      {(email.detectedInterviewDate || email.detectedDeadline) && (
+        <div className="flex gap-2 text-xs flex-wrap">
+          {email.detectedInterviewDate && (
+            <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">
+              📅 Interview: {email.detectedInterviewDate}
+            </span>
+          )}
+          {email.detectedDeadline && (
+            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
+              ⏰ Deadline: {email.detectedDeadline}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Linked job */}
+      {(linkedJob || linkJob) && (
+        <div className="text-xs">
+          {linkJob ? (
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500">Link to job:</span>
+              <select
+                value={email.relatedJobId ?? ''}
+                onChange={(e) => { onUpdate(email.id, { relatedJobId: e.target.value || undefined }); setLinkJob(false) }}
+                autoFocus
+                className="flex-1 px-2 py-1 border border-zinc-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">None</option>
+                {jobs.map((j) => <option key={j.id} value={j.id}>{j.company} — {j.role}</option>)}
+              </select>
+              <button onClick={() => setLinkJob(false)} className="text-zinc-400 hover:text-zinc-600">✕</button>
+            </div>
+          ) : linkedJob && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+              {linkedJob.company} — {linkedJob.role}
+              <button onClick={() => onUpdate(email.id, { relatedJobId: undefined })} className="ml-1 text-zinc-400 hover:text-zinc-700">✕</button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Body snippet toggle */}
+      <button onClick={() => setShowBody((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">
+        {showBody ? '▲ Hide body' : '▼ Show body'}
+      </button>
+      {showBody && (
+        <pre className="text-xs text-zinc-600 font-mono whitespace-pre-wrap leading-relaxed bg-zinc-50 rounded-lg p-3 max-h-48 overflow-y-auto border border-zinc-100">
+          {email.body}
+        </pre>
+      )}
+
+      {/* Quick actions */}
+      <div className="flex items-center gap-1.5 flex-wrap pt-1">
+        {!linkedJob && (
+          <button onClick={() => setLinkJob(true)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 transition-colors">
+            🔗 Link Job
+          </button>
+        )}
+        {(email.detectedInterviewDate || email.detectedDeadline) && (
+          <button onClick={handleCreateEvent} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-blue-50 hover:text-blue-700 border border-zinc-200 hover:border-blue-200 transition-colors">
+            📅 Create Event
+          </button>
+        )}
+        <button onClick={handleReply} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-violet-50 hover:text-violet-700 border border-zinc-200 hover:border-violet-200 transition-colors">
+          ✍️ Generate Reply
+        </button>
+        <button onClick={handleClassify} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors">
+          🤖 Classify with AI
+        </button>
+        {email.status === 'unread' && (
+          <button onClick={() => onUpdate(email.id, { status: 'processed' })} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors">
+            ✓ Mark Processed
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Summary bar ──────────────────────────────────────────────────────────────
+
+function SummaryBar({ emails }: { emails: EmailMessage[] }) {
+  const counts: Partial<Record<EmailType, number>> = {}
+  let unread = 0
+  for (const e of emails) {
+    counts[e.emailType] = (counts[e.emailType] ?? 0) + 1
+    if (e.status === 'unread') unread++
+  }
+
+  const highlights: EmailType[] = ['offer', 'interview_invite', 'rejection', 'oa_link']
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${unread > 0 ? 'bg-blue-100 text-blue-700' : 'bg-zinc-100 text-zinc-500'}`}>
+        {unread} unread
+      </span>
+      {highlights.map((t) => counts[t] ? (
+        <span key={t} className={`px-2.5 py-1 rounded-full text-xs font-medium ${EMAIL_TYPE_COLORS[t]}`}>
+          {EMAIL_TYPE_ICONS[t]} {counts[t]} {EMAIL_TYPE_LABELS[t]}
+        </span>
+      ) : null)}
+      <span className="text-xs text-zinc-400 ml-auto">{emails.length} total</span>
+    </div>
+  )
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function EmailPage() {
+  const { jobs, emails, ready, addEmail, updateEmail, deleteEmail, addEvent } = useStore()
+  const [filterCompany, setFilterCompany] = useState('')
+  const [filterType, setFilterType] = useState<EmailType | ''>('')
+  const [filterStatus, setFilterStatus] = useState<EmailStatus | ''>('')
+
+  const filtered = useMemo(() => {
+    const q = filterCompany.trim().toLowerCase()
+    return emails.filter((e) => {
+      if (q && !(e.company ?? '').toLowerCase().includes(q) && !(e.subject ?? '').toLowerCase().includes(q)) return false
+      if (filterType && e.emailType !== filterType) return false
+      if (filterStatus && e.status !== filterStatus) return false
+      return true
+    })
+  }, [emails, filterCompany, filterType, filterStatus])
+
+  const allCompanies = useMemo(() => [...new Set(emails.map((e) => e.company).filter(Boolean))].sort() as string[], [emails])
+  const hasFilters = filterCompany !== '' || filterType !== '' || filterStatus !== ''
+
+  if (!ready) {
+    return (
+      <div className="p-8 max-w-3xl mx-auto space-y-4">
+        <div className="h-8 w-36 bg-zinc-100 rounded animate-pulse" />
+        {[0, 1, 2].map((i) => <div key={i} className="h-28 bg-zinc-100 rounded-xl animate-pulse" />)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-8 max-w-3xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-zinc-900">Email Intelligence</h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          {emails.length === 0
+            ? 'Paste or upload recruiter emails to track and parse them.'
+            : `${emails.length} email${emails.length !== 1 ? 's' : ''} tracked.`}
+        </p>
+      </div>
+
+      {/* Ingest panel */}
+      <IngestPanel jobs={jobs} onAdd={addEmail} />
+
+      {/* Summary bar */}
+      {emails.length > 0 && <SummaryBar emails={emails} />}
+
+      {/* Filters */}
+      {emails.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              value={filterCompany}
+              onChange={(e) => setFilterCompany(e.target.value)}
+              list="email-company-filter"
+              placeholder="Filter by company…"
+              className="pl-8 pr-3 py-1.5 text-sm border border-zinc-200 rounded-lg bg-white text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-44"
+            />
+            <datalist id="email-company-filter">
+              {allCompanies.map((c) => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as EmailType | '')}
+            className="px-3 py-1.5 text-sm border border-zinc-200 rounded-lg bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Types</option>
+            {EMAIL_TYPES.map((t) => <option key={t} value={t}>{EMAIL_TYPE_LABELS[t]}</option>)}
+          </select>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as EmailStatus | '')}
+            className="px-3 py-1.5 text-sm border border-zinc-200 rounded-lg bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Statuses</option>
+            {EMAIL_STATUSES.map((s) => <option key={s} value={s}>{EMAIL_STATUS_LABELS[s]}</option>)}
+          </select>
+          {hasFilters && (
+            <button onClick={() => { setFilterCompany(''); setFilterType(''); setFilterStatus('') }} className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Email list */}
+      {emails.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed border-zinc-200 rounded-xl">
+          <div className="w-14 h-14 rounded-2xl bg-zinc-100 flex items-center justify-center mb-4">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+          </div>
+          <p className="text-base font-medium text-zinc-600">No emails yet</p>
+          <p className="text-sm text-zinc-400 mt-1 max-w-xs">
+            Paste an email above and click &ldquo;Parse &amp; Review&rdquo; to add it.
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-zinc-400 text-center py-10">No emails match the current filters.</p>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((email) => (
+            <EmailCard
+              key={email.id}
+              email={email}
+              jobs={jobs}
+              onUpdate={updateEmail}
+              onDelete={deleteEmail}
+              onAddEvent={addEvent}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

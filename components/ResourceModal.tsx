@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { RESOURCE_TYPES, RESOURCE_TYPE_LABELS, type Resource, type ResourceType } from '@/lib/types'
 
 interface FormState {
@@ -92,8 +92,10 @@ export function ResourceModal({ isOpen, onClose, onSave, initialData }: Resource
 
   useEffect(() => {
     if (!isOpen) return
-    setForm(initialData ? resourceToForm(initialData) : EMPTY)
-    setErrors({})
+    startTransition(() => {
+      setForm(initialData ? resourceToForm(initialData) : EMPTY)
+      setErrors({})
+    })
   }, [isOpen, initialData])
 
   useEffect(() => {

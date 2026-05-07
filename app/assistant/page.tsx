@@ -1,13 +1,15 @@
 'use client'
 
 import { Suspense } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useStore } from '@/lib/store'
 import {
   STATUS_LABELS,
   RESOURCE_TYPE_LABELS,
   RESOURCE_TYPE_COLORS,
+  ROUND_TYPE_LABELS,
+  EMAIL_TYPE_LABELS,
   ACTIVE_STATUSES,
   type Resource,
 } from '@/lib/types'
@@ -69,6 +71,70 @@ const TASKS = [
     icon: '🏆',
     hint: 'auto-scores all resumes',
     instruction: '',
+  },
+  {
+    id: 'gen_interview_questions',
+    label: 'Practice Questions',
+    icon: '❓',
+    hint: 'round type · job description',
+    instruction:
+      'You are an interview coach. Based on the round type, job description, and any prep notes provided, generate 8–12 likely interview questions with model answers. Include behavioral (STAR), technical/domain-specific, and situational questions as appropriate for the round type.',
+  },
+  {
+    id: 'interview_prep_plan',
+    label: 'Interview Prep Plan',
+    icon: '📋',
+    hint: 'round type · prep notes',
+    instruction:
+      'You are an interview coach. Create a structured 3–5 day prep plan for the upcoming interview round. Include daily focus areas, specific topics to review, practice drills, and a final-day checklist. Tailor the plan to the round type and any context provided.',
+  },
+  {
+    id: 'rewrite_star_story',
+    label: 'Rewrite STAR Story',
+    icon: '⭐',
+    hint: 'stories · job description',
+    instruction:
+      'You are an interview coach specializing in behavioral interviews. Take the rough story or bullet points provided and rewrite it as a polished STAR format answer (Situation, Task, Action, Result). Keep it under 2 minutes spoken (about 300 words), quantify impact where possible, and end with a clear result.',
+  },
+  {
+    id: 'mock_execution',
+    label: 'Mock Execution Round',
+    icon: '⚡',
+    hint: 'round type · prep notes',
+    instruction:
+      'You are a senior PM conducting a mock execution/metrics round interview. Ask 3–5 realistic execution questions (metrics, root-cause analysis, prioritization, A/B testing) one at a time, then after each answer provide specific, constructive feedback. Tailor questions to the company and role if provided.',
+  },
+  {
+    id: 'mock_product',
+    label: 'Mock Product Jam',
+    icon: '🧩',
+    hint: 'round type · prep notes',
+    instruction:
+      'You are a senior PM conducting a mock product sense interview. Ask a realistic product design or product sense question for the company/role provided. After the candidate responds, give structured feedback covering: goal setting, user segmentation, prioritization framework, and depth of thinking. Then ask a follow-up.',
+  },
+  {
+    id: 'interview_followup_email',
+    label: 'Follow-up Email',
+    icon: '📧',
+    hint: 'interviewer · round notes',
+    instruction:
+      'You are an expert at professional communication. Write a concise, warm thank-you email (under 150 words) to send after an interview. Reference something specific from the conversation, reiterate interest in the role, and end with a forward-looking statement. Do not use hollow phrases like "I was thrilled to meet you."',
+  },
+  {
+    id: 'classify_email',
+    label: 'Classify Email',
+    icon: '🏷️',
+    hint: 'email body',
+    instruction:
+      'You are an expert recruiter-email analyst. Read the email below and respond with a structured classification:\n\n1. **Type**: one of recruiter_reply | interview_invite | rejection | oa_link | follow_up | networking | offer | other\n2. **Company**: company name if detectable\n3. **Sender**: sender name/role if identifiable\n4. **Action needed**: one clear sentence on what the candidate should do next\n5. **Urgency**: High / Medium / Low with a brief reason\n6. **Interview date**: YYYY-MM-DD if mentioned, else "none"\n7. **Deadline**: YYYY-MM-DD if mentioned, else "none"\n8. **Summary**: 1–2 sentences summarising the email',
+  },
+  {
+    id: 'draft_email_reply',
+    label: 'Draft Email Reply',
+    icon: '✍️',
+    hint: 'email body · context',
+    instruction:
+      'You are an expert at professional job-search communication. Draft a concise, warm reply (under 200 words) to the email below. Match the tone of the original, be specific where possible, and end with a clear next step or question. Do not be sycophantic. Avoid hollow openers like "I hope this email finds you well."',
   },
 ] as const
 
@@ -150,6 +216,10 @@ function buildPrompt(
   selectedResourceIds: Set<string>,
   resources: Resource[],
   customInstructions: string,
+  interviewId: string,
+  interviews: ReturnType<typeof useStore>['interviews'],
+  emailId: string,
+  emails: ReturnType<typeof useStore>['emails'],
 ): string {
   if (!task) return ''
 
@@ -225,6 +295,38 @@ function buildPrompt(
     }
   }
 
+  const iv = interviews.find((i) => i.id === interviewId)
+  if (iv) {
+    lines.push('')
+    lines.push('---')
+    lines.push('## Interview Round')
+    lines.push(`Company: ${iv.company}`)
+    if (iv.role) lines.push(`Role: ${iv.role}`)
+    lines.push(`Round: ${iv.roundName} (${ROUND_TYPE_LABELS[iv.roundType]})`)
+    if (iv.interviewDate) lines.push(`Date: ${iv.interviewDate}`)
+    if (iv.interviewerName) lines.push(`Interviewer: ${iv.interviewerName}${iv.interviewerRole ? ` — ${iv.interviewerRole}` : ''}`)
+    if (iv.prepNotes) { lines.push(''); lines.push('### Prep Notes'); lines.push(iv.prepNotes) }
+    if (iv.questionsToPractice) { lines.push(''); lines.push('### Questions to Practice'); lines.push(iv.questionsToPractice) }
+    if (iv.storiesToUse) { lines.push(''); lines.push('### Stories / STAR Examples'); lines.push(iv.storiesToUse) }
+    if (iv.feedback) { lines.push(''); lines.push('### Previous Feedback'); lines.push(iv.feedback) }
+  }
+
+  const em = emails.find((e) => e.id === emailId)
+  if (em) {
+    lines.push('')
+    lines.push('---')
+    lines.push('## Email')
+    if (em.company) lines.push(`Company: ${em.company}`)
+    if (em.senderName || em.senderEmail) lines.push(`From: ${[em.senderName, em.senderEmail ? `<${em.senderEmail}>` : ''].filter(Boolean).join(' ')}`)
+    if (em.subject) lines.push(`Subject: ${em.subject}`)
+    if (em.receivedAt) lines.push(`Received: ${em.receivedAt}`)
+    lines.push(`Type: ${EMAIL_TYPE_LABELS[em.emailType]}`)
+    if (em.detectedAction) lines.push(`Detected action: ${em.detectedAction}`)
+    lines.push('')
+    lines.push('### Body')
+    lines.push(em.body)
+  }
+
   const chosen = resources.filter((r) => selectedResourceIds.has(r.id))
   if (chosen.length > 0) {
     lines.push('')
@@ -256,10 +358,12 @@ function buildPrompt(
 
 function AssistantPageContent() {
   const searchParams = useSearchParams()
-  const { jobs, resources, ready } = useStore()
+  const { jobs, resources, interviews, emails, ready } = useStore()
 
   const [taskId, setTaskId] = useState<TaskId>('analyze_fit')
   const [jobId, setJobId] = useState('')
+  const [interviewId, setInterviewId] = useState('')
+  const [emailId, setEmailId] = useState('')
   const [selectedResourceIds, setSelectedResourceIds] = useState<Set<string>>(new Set())
   const [customInstructions, setCustomInstructions] = useState('')
   const [resourceSearch, setResourceSearch] = useState('')
@@ -277,8 +381,14 @@ function AssistantPageContent() {
     paramsApplied.current = true
     const taskParam = searchParams.get('task') as TaskId | null
     const jobParam = searchParams.get('jobId')
-    if (taskParam && TASKS.find((t) => t.id === taskParam)) setTaskId(taskParam)
-    if (jobParam) setJobId(jobParam)
+    const interviewParam = searchParams.get('interviewId')
+    const emailParam = searchParams.get('emailId')
+    startTransition(() => {
+      if (taskParam && TASKS.find((t) => t.id === taskParam)) setTaskId(taskParam)
+      if (jobParam) setJobId(jobParam)
+      if (interviewParam) setInterviewId(interviewParam)
+      if (emailParam) setEmailId(emailParam)
+    })
   }, [ready, searchParams])
 
   const task = TASKS.find((t) => t.id === taskId)
@@ -321,7 +431,7 @@ function AssistantPageContent() {
   function toggleResource(id: string) {
     setSelectedResourceIds((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }
@@ -391,8 +501,8 @@ function AssistantPageContent() {
   }, [])
 
   const prompt = useMemo(
-    () => buildPrompt(task, jobId, jobs, selectedResourceIds, resources, customInstructions),
-    [task, jobId, jobs, selectedResourceIds, resources, customInstructions],
+    () => buildPrompt(task, jobId, jobs, selectedResourceIds, resources, customInstructions, interviewId, interviews, emailId, emails),
+    [task, jobId, jobs, selectedResourceIds, resources, customInstructions, interviewId, interviews, emailId, emails],
   )
 
   const isMatchTask = taskId === 'find_best_resume'
