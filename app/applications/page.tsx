@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useStore } from '@/lib/store'
 import {
   JOB_STATUSES,
@@ -17,6 +18,114 @@ import { JobModal } from '@/components/JobModal'
 import { useToast } from '@/lib/toast'
 import { useHotkey } from '@/lib/hotkeys'
 import { daysUntil, dueLabel, dueColor } from '@/lib/utils'
+
+// Computed once at module load — avoids Date.now() during render
+const MODULE_NOW = Date.now()
+
+// ─── Follow-Up Queue ──────────────────────────────────────────────────────────
+
+const FOLLOWUP_THRESHOLD = 7   // days since last update before follow-up is suggested
+const FOLLOWUP_STATUSES: JobStatus[] = ['applied', 'recruiter_screen', 'interview', 'final_round']
+
+interface FollowUpJob {
+  job: Job
+  daysSince: number
+  urgency: 'high' | 'medium' | 'low'
+}
+
+function getFollowUpQueue(jobs: Job[]): FollowUpJob[] {
+  return jobs
+    .filter((j) => FOLLOWUP_STATUSES.includes(j.status))
+    .map((j) => {
+      const daysSince = Math.floor((MODULE_NOW - new Date(j.updatedAt).getTime()) / 86_400_000)
+      return { job: j, daysSince }
+    })
+    .filter(({ daysSince }) => daysSince >= FOLLOWUP_THRESHOLD)
+    .map(({ job, daysSince }): FollowUpJob => ({
+      job,
+      daysSince,
+      urgency: daysSince >= 21 ? 'high' : daysSince >= 14 ? 'medium' : 'low',
+    }))
+    .sort((a, b) => b.daysSince - a.daysSince)
+}
+
+const URGENCY_COLORS: Record<'high' | 'medium' | 'low', string> = {
+  high: 'text-red-600',
+  medium: 'text-amber-600',
+  low: 'text-zinc-500',
+}
+
+interface FollowUpQueueProps {
+  jobs: Job[]
+  onLogFollowUp: (job: Job) => void
+  onDraftEmail: (job: Job) => void
+}
+
+function FollowUpQueue({ jobs, onLogFollowUp, onDraftEmail }: FollowUpQueueProps) {
+  const queue = useMemo(() => getFollowUpQueue(jobs), [jobs])
+  const [collapsed, setCollapsed] = useState(false)
+
+  if (queue.length === 0) return null
+
+  return (
+    <div className="mb-6 bg-white rounded-xl border border-amber-200 overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3.5 border-b border-amber-100 hover:bg-amber-50/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm">💬</span>
+          <h2 className="text-sm font-semibold text-amber-900">Follow-Up Queue</h2>
+          <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+            {queue.length}
+          </span>
+          <span className="text-xs text-amber-600">· No update in {FOLLOWUP_THRESHOLD}+ days</span>
+        </div>
+        <svg
+          className={`w-4 h-4 text-amber-600 transition-transform ${collapsed ? '' : 'rotate-180'}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {!collapsed && (
+        <div className="divide-y divide-amber-50">
+          {queue.slice(0, 8).map(({ job, daysSince, urgency }) => (
+            <div key={job.id} className="flex items-center gap-4 px-5 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-zinc-900">{job.company}</p>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[job.status]}`}>
+                    {STATUS_LABELS[job.status]}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 truncate">{job.role}</p>
+              </div>
+              <span className={`shrink-0 text-xs font-semibold tabular-nums ${URGENCY_COLORS[urgency]}`}>
+                {daysSince}d ago
+              </span>
+              <div className="shrink-0 flex items-center gap-1.5">
+                <button
+                  onClick={() => onDraftEmail(job)}
+                  className="px-2.5 py-1 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 rounded-md transition-colors border border-violet-200"
+                >
+                  Draft Email
+                </button>
+                <button
+                  onClick={() => onLogFollowUp(job)}
+                  className="px-2.5 py-1 text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-md transition-colors border border-zinc-200"
+                >
+                  Log Sent
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Kanban columns config ────────────────────────────────────────────────────
 
@@ -193,6 +302,7 @@ type ViewMode = 'table' | 'board'
 export default function ApplicationsPage() {
   const { jobs, addJob, updateJob, deleteJob, ready } = useStore()
   const toast = useToast()
+  const router = useRouter()
 
   const [view, setView] = useState<ViewMode>('table')
   const [search, setSearch] = useState('')
@@ -262,6 +372,19 @@ export default function ApplicationsPage() {
     setPriorityFilter('all')
   }
 
+  function handleLogFollowUp(job: Job) {
+    updateJob(job.id, {})  // bumps updatedAt, resetting the stale clock
+    toast(`Follow-up logged for ${job.company}`, 'success')
+  }
+
+  function handleDraftFollowUp(job: Job) {
+    const params = new URLSearchParams({
+      task: 'draft_follow_up_email',
+      jobId: job.id,
+    })
+    router.push(`/assistant?${params.toString()}`)
+  }
+
   return (
     <div className="p-8">
       {/* ── Header ── */}
@@ -319,6 +442,15 @@ export default function ApplicationsPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Follow-up queue (shown when data is ready) ── */}
+      {ready && (
+        <FollowUpQueue
+          jobs={jobs}
+          onLogFollowUp={handleLogFollowUp}
+          onDraftEmail={handleDraftFollowUp}
+        />
+      )}
 
       {/* ── Filters (table view only) ── */}
       {view === 'table' && (
