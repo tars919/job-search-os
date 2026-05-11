@@ -410,6 +410,7 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
   const [showBody, setShowBody] = useState(false)
   const [linkJob, setLinkJob] = useState(false)
   const [classifying, setClassifying] = useState(false)
+  const [extracting, setExtracting] = useState(false)
 
   function handleCreateEvent() {
     const date = email.detectedInterviewDate ?? email.detectedDeadline ?? email.receivedAt
@@ -458,6 +459,28 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
       toast('Classification failed — check your connection', 'error')
     } finally {
       setClassifying(false)
+    }
+  }
+
+  async function handleExtract() {
+    setExtracting(true)
+    try {
+      const res = await fetch('/api/gmail/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId: email.id }),
+      })
+      const data = await res.json() as { jobId?: string; extracted?: { company: string; role: string }; error?: string }
+      if (!res.ok || !data.jobId) {
+        toast(data.error ?? 'Could not extract job details', 'error')
+      } else {
+        onUpdate(email.id, { relatedJobId: data.jobId })
+        toast(`Application created: ${data.extracted?.company} — ${data.extracted?.role}`, 'success')
+      }
+    } catch {
+      toast('Extraction failed — check your connection', 'error')
+    } finally {
+      setExtracting(false)
     }
   }
 
@@ -579,6 +602,11 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
         <button onClick={handleClassify} disabled={classifying} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors disabled:opacity-50">
           {classifying ? '⏳ Classifying…' : '🤖 Re-classify'}
         </button>
+        {!email.relatedJobId && (
+          <button onClick={handleExtract} disabled={extracting} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors disabled:opacity-50">
+            {extracting ? '⏳ Creating…' : '➕ Create Application'}
+          </button>
+        )}
         {email.status === 'unread' && (
           <button onClick={() => onUpdate(email.id, { status: 'processed' })} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors">
             ✓ Mark Processed
