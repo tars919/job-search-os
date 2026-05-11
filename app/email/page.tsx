@@ -406,8 +406,10 @@ interface EmailCardProps {
 
 function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardProps) {
   const router = useRouter()
+  const toast = useToast()
   const [showBody, setShowBody] = useState(false)
   const [linkJob, setLinkJob] = useState(false)
+  const [classifying, setClassifying] = useState(false)
 
   function handleCreateEvent() {
     const date = email.detectedInterviewDate ?? email.detectedDeadline ?? email.receivedAt
@@ -431,8 +433,32 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
     router.push(`/assistant?${params.toString()}`)
   }
 
-  function handleClassify() {
-    router.push(`/assistant?task=classify_email&emailId=${email.id}`)
+  async function handleClassify() {
+    setClassifying(true)
+    try {
+      const res = await fetch('/api/gmail/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId: email.id }),
+      })
+      const data = await res.json() as { result?: { emailType: string; company: string; detectedAction: string; detectedInterviewDate: string | null; detectedDeadline: string | null }; error?: string }
+      if (!res.ok || !data.result) {
+        toast(data.error ?? 'Classification failed', 'error')
+      } else {
+        onUpdate(email.id, {
+          emailType: data.result.emailType as EmailMessage['emailType'],
+          company: data.result.company || email.company,
+          detectedAction: data.result.detectedAction || undefined,
+          detectedInterviewDate: data.result.detectedInterviewDate || undefined,
+          detectedDeadline: data.result.detectedDeadline || undefined,
+        })
+        toast('Email re-classified', 'success')
+      }
+    } catch {
+      toast('Classification failed — check your connection', 'error')
+    } finally {
+      setClassifying(false)
+    }
   }
 
   const linkedJob = jobs.find((j) => j.id === email.relatedJobId)
@@ -550,8 +576,8 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
         <button onClick={handleReply} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-violet-50 hover:text-violet-700 border border-zinc-200 hover:border-violet-200 transition-colors">
           ✍️ Generate Reply
         </button>
-        <button onClick={handleClassify} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors">
-          🤖 Classify with AI
+        <button onClick={handleClassify} disabled={classifying} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors disabled:opacity-50">
+          {classifying ? '⏳ Classifying…' : '🤖 Re-classify'}
         </button>
         {email.status === 'unread' && (
           <button onClick={() => onUpdate(email.id, { status: 'processed' })} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors">
