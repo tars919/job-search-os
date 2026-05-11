@@ -1,12 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getSupabase } from '@/lib/supabase/client'
 
 type Mode = 'signin' | 'signup' | 'reset'
 
 export default function AuthPage() {
   const [mode, setMode] = useState<Mode>('signin')
+
+  // Redirect to dashboard if already authenticated
+  useEffect(() => {
+    getSupabase().auth.getSession().then(({ data: { session } }) => {
+      if (session) window.location.href = '/'
+    })
+  }, [])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)

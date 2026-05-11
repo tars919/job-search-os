@@ -23,6 +23,7 @@ import type {
 } from './types'
 import { getSupabase } from './supabase/client'
 import { fromDb, toDbInsert, toDbPatch } from './supabase/mappers'
+import { useToast } from './toast'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,16 @@ const StoreContext = createContext<Store | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [supabase] = useState(() => getSupabase())
   const userIdRef = useRef<string | null>(null)
+  const toast = useToast()
+  const toastRef = useRef(toast)
+  useEffect(() => { toastRef.current = toast }, [toast])
+
+  // Centralised DB error handler — reads from ref so no useCallback deps needed
+  function dbErr(op: string, error: unknown) {
+    if (!error) return
+    console.error(`[store] ${op}:`, error)
+    toastRef.current('Changes may not have saved — check your connection.', 'error')
+  }
 
   const [ready, setReady] = useState(false)
   const [jobs, setJobs] = useState<Job[]>([])
@@ -98,30 +109,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Load all data for the given user
   async function loadAll(userId: string) {
-    const [j, p, n, r, o, i, e, m, d] = await Promise.all([
-      supabase.from('jobs').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('prompts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('research_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('resources').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('outreach').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('interviews').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('events').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('emails').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      supabase.from('job_discoveries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-    ])
+    try {
+      const [j, p, n, r, o, i, e, m, d] = await Promise.all([
+        supabase.from('jobs').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('prompts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('research_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('resources').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('outreach').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('interviews').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('events').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('emails').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('job_discoveries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      ])
 
-    startTransition(() => {
-      setJobs((j.data ?? []).map((r) => fromDb<Job>(r)))
-      setPrompts((p.data ?? []).map((r) => fromDb<PromptEntry>(r)))
-      setNotes((n.data ?? []).map((r) => fromDb<ResearchNote>(r)))
-      setResources((r.data ?? []).map((r) => fromDb<Resource>(r)))
-      setOutreach((o.data ?? []).map((r) => fromDb<Outreach>(r)))
-      setInterviews((i.data ?? []).map((r) => fromDb<InterviewPrep>(r)))
-      setEvents((e.data ?? []).map((r) => fromDb<CalendarEvent>(r)))
-      setEmails((m.data ?? []).map((r) => fromDb<EmailMessage>(r)))
-      setDiscoveries((d.data ?? []).map((r) => fromDb<JobDiscovery>(r)))
-      setReady(true)
-    })
+      startTransition(() => {
+        setJobs((j.data ?? []).map((r) => fromDb<Job>(r)))
+        setPrompts((p.data ?? []).map((r) => fromDb<PromptEntry>(r)))
+        setNotes((n.data ?? []).map((r) => fromDb<ResearchNote>(r)))
+        setResources((r.data ?? []).map((r) => fromDb<Resource>(r)))
+        setOutreach((o.data ?? []).map((r) => fromDb<Outreach>(r)))
+        setInterviews((i.data ?? []).map((r) => fromDb<InterviewPrep>(r)))
+        setEvents((e.data ?? []).map((r) => fromDb<CalendarEvent>(r)))
+        setEmails((m.data ?? []).map((r) => fromDb<EmailMessage>(r)))
+        setDiscoveries((d.data ?? []).map((r) => fromDb<JobDiscovery>(r)))
+        setReady(true)
+      })
+    } catch (err) {
+      console.error('[store] loadAll failed:', err)
+      toastRef.current('Failed to load your data — please refresh the page.', 'error')
+      startTransition(() => setReady(true))
+    }
   }
 
   function clearAll() {
@@ -172,7 +189,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('jobs')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addJob:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -187,7 +204,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('jobs')
         .insert(entities.map((j) => toDbInsert(j as Record<string, unknown>, userId)))
-        .then(({ error }) => { if (error) console.error('bulkAddJobs:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -199,7 +216,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('jobs')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateJob:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -208,7 +225,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setJobs((prev) => prev.filter((j) => j.id !== id))
       supabase.from('jobs').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteJob:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -225,7 +242,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('prompts')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addPrompt:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -237,7 +254,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('prompts')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updatePrompt:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -246,7 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setPrompts((prev) => prev.filter((p) => p.id !== id))
       supabase.from('prompts').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deletePrompt:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -263,7 +280,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('research_notes')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addNote:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -275,7 +292,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('research_notes')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateNote:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -284,7 +301,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setNotes((prev) => prev.filter((n) => n.id !== id))
       supabase.from('research_notes').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteNote:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -301,7 +318,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('resources')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addResource:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -313,7 +330,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('resources')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateResource:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -322,7 +339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setResources((prev) => prev.filter((r) => r.id !== id))
       supabase.from('resources').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteResource:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -339,7 +356,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('outreach')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addOutreach:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -351,7 +368,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('outreach')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateOutreach:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -360,7 +377,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setOutreach((prev) => prev.filter((o) => o.id !== id))
       supabase.from('outreach').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteOutreach:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -377,7 +394,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('interviews')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addInterview:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -389,7 +406,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('interviews')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateInterview:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -398,7 +415,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setInterviews((prev) => prev.filter((i) => i.id !== id))
       supabase.from('interviews').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteInterview:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -415,7 +432,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('events')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addEvent:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -427,7 +444,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('events')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateEvent:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -436,7 +453,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setEvents((prev) => prev.filter((e) => e.id !== id))
       supabase.from('events').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteEvent:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -453,7 +470,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('emails')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addEmail:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -465,7 +482,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('emails')
         .update(toDbPatch(patch as Record<string, unknown>))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateEmail:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -474,7 +491,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setEmails((prev) => prev.filter((e) => e.id !== id))
       supabase.from('emails').delete().eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteEmail:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -491,7 +508,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       supabase
         .from('job_discoveries')
         .insert(toDbInsert(entity, userId))
-        .then(({ error }) => { if (error) console.error('addDiscovery:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -505,7 +522,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('job_discoveries')
         .update(toDbPatch(patch))
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('updateDiscovery:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )
@@ -517,7 +534,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from('job_discoveries')
         .delete()
         .eq('id', id)
-        .then(({ error }) => { if (error) console.error('deleteDiscovery:', error) })
+        .then(({ error }) => { if (error) dbErr(error.message, error) })
     },
     [supabase],
   )

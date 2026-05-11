@@ -7,9 +7,9 @@ import { ToastProvider } from '@/lib/toast'
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <StoreProvider>
-        <ToastProvider>{children}</ToastProvider>
-      </StoreProvider>
+      <ToastProvider>
+        <StoreProvider>{children}</StoreProvider>
+      </ToastProvider>
     </AuthProvider>
   )
 }
