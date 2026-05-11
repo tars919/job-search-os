@@ -18,6 +18,8 @@ import {
   type JobStatus,
   type Priority,
 } from '@/lib/types'
+import { MetricCard, MetricCardSkeleton } from '@/components/MetricCard'
+import { daysUntil, timeAgo } from '@/lib/utils'
 
 // ─── Chart colour palette ─────────────────────────────────────────────────────
 
@@ -44,27 +46,7 @@ const PRIORITY_CHART_COLORS: Record<Priority, string> = {
 
 const BLUE = '#3b82f6'
 
-// ─── Small shared components ──────────────────────────────────────────────────
-
-function MetricCard({
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  label: string
-  value: string | number
-  sub: string
-  accent?: string
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-zinc-200 px-5 py-4">
-      <p className="text-xs font-medium text-zinc-400 uppercase tracking-wider">{label}</p>
-      <p className={`mt-2 text-4xl font-semibold tabular-nums ${accent ?? 'text-zinc-900'}`}>{value}</p>
-      <p className="mt-1 text-xs text-zinc-400">{sub}</p>
-    </div>
-  )
-}
+// ─── Chart components ─────────────────────────────────────────────────────────
 
 function ChartCard({
   title,
@@ -94,8 +76,6 @@ function ChartEmpty({ message }: { message: string }) {
   )
 }
 
-// ─── Custom tooltip ───────────────────────────────────────────────────────────
-
 function ChartTooltip({ active, payload, label }: {
   active?: boolean
   payload?: Array<{ name: string; value: number; color?: string }>
@@ -117,13 +97,6 @@ function ChartTooltip({ active, payload, label }: {
 
 // ─── Data helpers ─────────────────────────────────────────────────────────────
 
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
-}
-
 function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
@@ -144,32 +117,11 @@ function topN(
     .map(([name, count]) => ({ name, count }))
 }
 
-function timeAgo(iso: string): string {
-  const d = daysSince(iso)
-  if (d === 0) return 'today'
-  if (d === 1) return 'yesterday'
-  if (d < 30) return `${d}d ago`
-  return `${Math.floor(d / 30)}mo ago`
-}
-
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function SkeletonCard() {
-  return (
-    <div className="bg-white rounded-xl border border-zinc-200 px-5 py-4 space-y-3 animate-pulse">
-      <div className="h-3 w-24 bg-zinc-100 rounded" />
-      <div className="h-8 w-12 bg-zinc-100 rounded" />
-      <div className="h-3 w-32 bg-zinc-100 rounded" />
-    </div>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
   const { jobs, ready } = useStore()
 
-  // ── Metrics ──────────────────────────────────────────────────────────────
   const metrics = useMemo(() => {
     const total = jobs.length
     const sent = jobs.filter((j) => !!j.appliedAt).length
@@ -199,7 +151,6 @@ export default function AnalyticsPage() {
     }
   }, [jobs])
 
-  // ── Status distribution ───────────────────────────────────────────────────
   const statusData = useMemo(
     () =>
       JOB_STATUSES.map((s) => ({
@@ -210,7 +161,6 @@ export default function AnalyticsPage() {
     [jobs],
   )
 
-  // ── Applications over time ────────────────────────────────────────────────
   const appsOverTime = useMemo(() => {
     const groups: Record<string, number> = {}
     jobs
@@ -230,7 +180,6 @@ export default function AnalyticsPage() {
       }))
   }, [jobs])
 
-  // ── Priority split ────────────────────────────────────────────────────────
   const priorityData = useMemo(
     () =>
       PRIORITIES.map((p) => ({
@@ -241,11 +190,9 @@ export default function AnalyticsPage() {
     [jobs],
   )
 
-  // ── Top companies & locations ─────────────────────────────────────────────
   const topCompanies = useMemo(() => topN(jobs, 'company'), [jobs])
   const topLocations = useMemo(() => topN(jobs, 'location'), [jobs])
 
-  // ── Insights ──────────────────────────────────────────────────────────────
   const respondedCompanies = useMemo(() => {
     const counts: Record<string, number> = {}
     jobs
@@ -288,24 +235,23 @@ export default function AnalyticsPage() {
     [jobs],
   )
 
-  // ── Loading state ─────────────────────────────────────────────────────────
   if (!ready) {
     return (
-      <div className="p-8 max-w-6xl space-y-8">
+      <div className="p-6 sm:p-8 max-w-6xl space-y-8">
         <div className="space-y-1">
           <div className="h-7 w-32 bg-zinc-100 rounded animate-pulse" />
           <div className="h-4 w-48 bg-zinc-100 rounded animate-pulse" />
         </div>
-        <div className="grid grid-cols-4 gap-4">
-          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((i) => <MetricCardSkeleton key={i} />)}
         </div>
       </div>
     )
   }
 
   return (
-    <div className="p-8 max-w-6xl space-y-8">
-      {/* ── Header ── */}
+    <div className="p-6 sm:p-8 max-w-6xl space-y-8">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900">Analytics</h1>
         <p className="mt-1 text-sm text-zinc-400">
@@ -313,9 +259,9 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      {/* ── Metric cards ── */}
+      {/* Metric cards */}
       <div className="space-y-4">
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <MetricCard
             label="Total Jobs"
             value={metrics.total}
@@ -338,7 +284,7 @@ export default function AnalyticsPage() {
             accent={metrics.offers > 0 ? 'text-emerald-600' : undefined}
           />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <MetricCard
             label="Response Rate"
             value={`${metrics.responseRate}%`}
@@ -360,9 +306,9 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* ── Charts row 1: Status + Priority ── */}
-      <div className="grid grid-cols-3 gap-4">
-        <ChartCard title="Status Distribution" sub="all tracked jobs" className="col-span-2">
+      {/* Charts row 1: Status + Priority */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ChartCard title="Status Distribution" sub="all tracked jobs" className="sm:col-span-2">
           {statusData.length === 0 ? (
             <ChartEmpty message="No jobs to display" />
           ) : (
@@ -431,7 +377,7 @@ export default function AnalyticsPage() {
         </ChartCard>
       </div>
 
-      {/* ── Charts row 2: Applications over time ── */}
+      {/* Applications over time */}
       <ChartCard
         title="Applications Over Time"
         sub={appsOverTime.length > 0 ? `${metrics.sent} total applications` : undefined}
@@ -476,8 +422,8 @@ export default function AnalyticsPage() {
         )}
       </ChartCard>
 
-      {/* ── Charts row 3: Company + Location ── */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Company + Location */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <ChartCard title="Top Companies" sub="by number of applications">
           {topCompanies.length === 0 ? (
             <ChartEmpty message="No company data" />
@@ -533,11 +479,10 @@ export default function AnalyticsPage() {
         </ChartCard>
       </div>
 
-      {/* ── Insights ── */}
+      {/* Insights */}
       <div>
         <h2 className="text-sm font-semibold text-zinc-900 mb-4">Insights</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {/* Companies that responded */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               Companies That Responded
@@ -556,7 +501,6 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          {/* High-priority open roles */}
           <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               High-Priority Open Roles
@@ -578,7 +522,6 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          {/* Deadlines this week */}
           <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               Deadlines This Week
@@ -608,7 +551,6 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          {/* Stale applications */}
           <div className="bg-white rounded-xl border border-zinc-200 p-5">
             <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
               Stale Applications

@@ -14,30 +14,7 @@ import {
 import { JobModal } from '@/components/JobModal'
 import { useToast } from '@/lib/toast'
 import { useHotkey } from '@/lib/hotkeys'
-
-// ─── Deadline helpers ────────────────────────────────────────────────────────
-
-function daysUntil(dateStr: string): number {
-  const target = new Date(dateStr + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
-}
-
-function dueLabel(days: number): string {
-  if (days < 0) return `${Math.abs(days)}d overdue`
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Tomorrow'
-  return `${days}d`
-}
-
-function dueColor(days: number): string {
-  if (days < 0) return 'text-red-600 font-semibold'
-  if (days <= 1) return 'text-red-500 font-semibold'
-  if (days <= 3) return 'text-amber-600 font-medium'
-  if (days <= 7) return 'text-yellow-600'
-  return 'text-zinc-400'
-}
+import { daysUntil, dueLabel, dueColor } from '@/lib/utils'
 
 // ─── Skeleton row ─────────────────────────────────────────────────────────────
 

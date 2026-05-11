@@ -3,6 +3,9 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useHotkey } from '@/lib/hotkeys'
+import { useAuth } from '@/lib/auth'
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
 
 function IconGrid() {
   return (
@@ -128,25 +131,80 @@ function IconClock() {
   )
 }
 
-const NAV_ITEMS = [
-  { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
-  { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
-  { label: 'Prompt Library', href: '/prompts', icon: <IconChat />, shortcut: '⌘3' },
-  { label: 'Research Notes', href: '/research', icon: <IconBook />, shortcut: '⌘4' },
-  { label: 'Resources', href: '/resources', icon: <IconFolder />, shortcut: '⌘5' },
-  { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
-  { label: 'Analytics', href: '/analytics', icon: <IconBarChart />, shortcut: '⌘7' },
-  { label: 'AI Assistant', href: '/assistant', icon: <IconSparkle />, shortcut: '⌘8' },
-  { label: 'Copilot', href: '/copilot', icon: <IconZap />, shortcut: '⌘9' },
-  { label: 'Outreach', href: '/outreach', icon: <IconUsers />, shortcut: '⌘0' },
-  { label: 'Interviews', href: '/interviews', icon: <IconCalendar />, shortcut: '' },
-  { label: 'Calendar', href: '/calendar', icon: <IconClock />, shortcut: '' },
-  { label: 'Email', href: '/email', icon: <IconMail />, shortcut: '' },
+function IconUser() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  )
+}
+
+function IconDiscover() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+// ─── Nav structure ────────────────────────────────────────────────────────────
+
+const NAV_SECTIONS = [
+  {
+    label: 'TRACK',
+    items: [
+      { label: 'Dashboard', href: '/', icon: <IconGrid />, shortcut: '⌘1' },
+      { label: 'Discover Jobs', href: '/discover', icon: <IconDiscover />, shortcut: '' },
+      { label: 'Applications', href: '/applications', icon: <IconBriefcase />, shortcut: '⌘2' },
+      { label: 'Analytics', href: '/analytics', icon: <IconBarChart />, shortcut: '⌘7' },
+    ],
+  },
+  {
+    label: 'PREPARE',
+    items: [
+      { label: 'Research Notes', href: '/research', icon: <IconBook />, shortcut: '⌘4' },
+      { label: 'Resources', href: '/resources', icon: <IconFolder />, shortcut: '⌘5' },
+      { label: 'Interviews', href: '/interviews', icon: <IconCalendar />, shortcut: '' },
+      { label: 'Outreach', href: '/outreach', icon: <IconUsers />, shortcut: '⌘0' },
+    ],
+  },
+  {
+    label: 'INTELLIGENCE',
+    items: [
+      { label: 'Copilot', href: '/copilot', icon: <IconZap />, shortcut: '⌘9' },
+      { label: 'Email', href: '/email', icon: <IconMail />, shortcut: '' },
+      { label: 'Calendar', href: '/calendar', icon: <IconClock />, shortcut: '' },
+      { label: 'AI Assistant', href: '/assistant', icon: <IconSparkle />, shortcut: '⌘8' },
+    ],
+  },
+  {
+    label: 'SYSTEM',
+    items: [
+      { label: 'Import CSV', href: '/import', icon: <IconUpload />, shortcut: '⌘6' },
+      { label: 'Prompt Library', href: '/prompts', icon: <IconChat />, shortcut: '⌘3' },
+      { label: 'Profile', href: '/profile', icon: <IconUser />, shortcut: '' },
+    ],
+  },
 ]
 
-export function Sidebar() {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+interface SidebarProps {
+  open?: boolean
+  onClose?: () => void
+}
+
+export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { user, signOut } = useAuth()
+
+  async function handleSignOut() {
+    await signOut()
+    router.push('/auth')
+  }
 
   useHotkey('1', () => router.push('/'), { meta: true })
   useHotkey('2', () => router.push('/applications'), { meta: true })
@@ -160,44 +218,90 @@ export function Sidebar() {
   useHotkey('0', () => router.push('/outreach'), { meta: true })
 
   return (
-    <aside className="w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200">
-      <div className="px-4 py-5 border-b border-zinc-100">
+    <aside
+      className={[
+        'fixed lg:static inset-y-0 left-0 z-30',
+        'w-56 shrink-0 h-full flex flex-col bg-white border-r border-zinc-200',
+        'transition-transform duration-200 ease-in-out',
+        open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+      ].join(' ')}
+    >
+      {/* Header */}
+      <div className="px-4 py-5 border-b border-zinc-100 flex items-center justify-between">
         <span className="text-sm font-semibold text-zinc-900 tracking-tight">
           Job Search OS
         </span>
+        <button
+          onClick={onClose}
+          className="lg:hidden p-1 rounded text-zinc-400 hover:text-zinc-700 transition-colors"
+          aria-label="Close navigation"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </div>
 
-      <nav className="flex-1 p-3 flex flex-col gap-0.5">
-        {NAV_ITEMS.map(({ label, href, icon, shortcut }) => {
-          const isActive =
-            href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/')
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900'
-              }`}
-            >
-              <span className="flex items-center gap-3">
-                <span className="shrink-0">{icon}</span>
-                {label}
-              </span>
-              <span className={`text-[10px] font-mono tabular-nums ${isActive ? 'text-blue-400' : 'text-zinc-300'}`}>
-                {shortcut}
-              </span>
-            </Link>
-          )
-        })}
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-3 flex flex-col gap-4 overflow-y-auto">
+        {NAV_SECTIONS.map(({ label, items }) => (
+          <div key={label}>
+            <p className="px-3 pb-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+              {label}
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {items.map(({ label: itemLabel, href, icon, shortcut }) => {
+                const isActive =
+                  href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/')
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={onClose}
+                    className={`flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900'
+                    }`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <span className="shrink-0">{icon}</span>
+                      {itemLabel}
+                    </span>
+                    {shortcut && (
+                      <span
+                        className={`text-[10px] font-mono tabular-nums ${
+                          isActive ? 'text-blue-400' : 'text-zinc-300'
+                        }`}
+                      >
+                        {shortcut}
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      <div className="px-4 py-3 border-t border-zinc-100">
-        <p className="text-xs text-zinc-400">
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-zinc-100 space-y-2">
+        {user && (
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-zinc-400 truncate min-w-0">{user.email}</p>
+            <button
+              onClick={handleSignOut}
+              className="shrink-0 text-xs text-zinc-400 hover:text-red-500 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
+        <p className="text-xs text-zinc-300">
           <kbd className="font-mono">N</kbd> new &nbsp;·&nbsp;
-          <kbd className="font-mono">/</kbd> search &nbsp;·&nbsp;
-          <kbd className="font-mono">Esc</kbd> close
+          <kbd className="font-mono">/</kbd> search
         </p>
       </div>
     </aside>

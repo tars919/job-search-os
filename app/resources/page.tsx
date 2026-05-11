@@ -12,17 +12,9 @@ import {
 import { ResourceModal } from '@/components/ResourceModal'
 import { useToast } from '@/lib/toast'
 import { useHotkey } from '@/lib/hotkeys'
+import { timeAgo } from '@/lib/utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const days = Math.floor(diff / 86_400_000)
-  if (days === 0) return 'today'
-  if (days === 1) return 'yesterday'
-  if (days < 30) return `${days}d ago`
-  return `${Math.floor(days / 30)}mo ago`
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -353,7 +345,7 @@ export default function ResourcesPage() {
 
       {/* ── Content ── */}
       {!ready ? (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </div>
       ) : filtered.length === 0 ? (

@@ -6,6 +6,7 @@ import { STATUS_LABELS, STATUS_COLORS, type ResearchNote } from '@/lib/types'
 import { NoteModal } from '@/components/NoteModal'
 import { useToast } from '@/lib/toast'
 import { useHotkey } from '@/lib/hotkeys'
+import { timeAgo } from '@/lib/utils'
 
 // ─── Lightweight markdown renderer ───────────────────────────────────────────
 // Handles: ## headings, **bold**, - / * bullets, blank lines
@@ -66,18 +67,6 @@ function MarkdownContent({ text }: { text: string }) {
       })}
     </div>
   )
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const days = Math.floor(diff / 86_400_000)
-  if (days === 0) return 'today'
-  if (days === 1) return 'yesterday'
-  if (days < 30) return `${days}d ago`
-  const months = Math.floor(days / 30)
-  return `${months}mo ago`
 }
 
 // ─── Note card ────────────────────────────────────────────────────────────────
