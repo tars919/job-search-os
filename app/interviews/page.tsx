@@ -15,6 +15,7 @@ import {
   type RoundType,
 } from '@/lib/types'
 import { InterviewPrepModal } from '@/components/InterviewPrepModal'
+import { daysUntil } from '@/lib/utils'
 
 // ─── AI action definitions ────────────────────────────────────────────────────
 
@@ -32,12 +33,6 @@ const AI_ACTIONS = [
 function formatDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00')
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function daysUntil(iso: string): number {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.round((new Date(iso + 'T00:00:00').getTime() - today.getTime()) / 86_400_000)
 }
 
 function dateBadge(iv: InterviewPrep) {

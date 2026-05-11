@@ -1,8 +1,9 @@
 'use client'
 
-import { useRef, useMemo, useState } from 'react'
+import { useEffect, useRef, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useStore } from '@/lib/store'
+import { useToast } from '@/lib/toast'
 import {
   EMAIL_TYPES,
   EMAIL_TYPE_LABELS,
@@ -16,6 +17,190 @@ import {
   type EmailStatus,
 } from '@/lib/types'
 import { parseEmailContent } from '@/lib/emailParser'
+
+// ─── Gmail section ────────────────────────────────────────────────────────────
+
+interface GmailStatus {
+  connected: boolean
+  gmailAddress?: string
+  lastSyncedAt?: string | null
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
+function GmailSection({ onSynced }: { onSynced: () => void }) {
+  const toast = useToast()
+  const [status, setStatus] = useState<GmailStatus | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const handledParam = useRef(false)
+
+  // Load connection status
+  useEffect(() => {
+    fetch('/api/gmail/status')
+      .then((r) => r.json())
+      .then((data: GmailStatus) => setStatus(data))
+      .catch(() => setStatus({ connected: false }))
+  }, [])
+
+  // Handle redirect params after OAuth
+  useEffect(() => {
+    if (handledParam.current) return
+    handledParam.current = true
+
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('connected')
+    const error = params.get('error')
+
+    if (connected === 'true') {
+      toast('Gmail connected successfully!', 'success')
+      fetch('/api/gmail/status')
+        .then((r) => r.json())
+        .then((data: GmailStatus) => setStatus(data))
+        .catch(() => {})
+      // Clean URL
+      window.history.replaceState({}, '', '/email')
+    } else if (error) {
+      const messages: Record<string, string> = {
+        gmail_denied: 'Gmail connection was cancelled.',
+        token_exchange: 'Failed to connect Gmail — please try again.',
+        profile_fetch: 'Could not read your Gmail address — please try again.',
+        gmail_not_configured: 'Gmail integration is not configured on this server.',
+      }
+      toast(messages[error] ?? 'Gmail connection failed.', 'error')
+      window.history.replaceState({}, '', '/email')
+    }
+  }, [toast])
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/gmail/sync', { method: 'POST' })
+      const data = await res.json() as { synced?: number; skipped?: number; error?: string }
+      if (!res.ok) {
+        toast(data.error ?? 'Sync failed.', 'error')
+      } else {
+        const msg = data.synced === 0
+          ? 'No new emails found.'
+          : `Synced ${data.synced} new email${data.synced !== 1 ? 's' : ''}.`
+        toast(msg, 'success')
+        // Refresh last synced time
+        fetch('/api/gmail/status')
+          .then((r) => r.json())
+          .then((s: GmailStatus) => setStatus(s))
+          .catch(() => {})
+        onSynced()
+      }
+    } catch {
+      toast('Sync failed — check your connection.', 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleDisconnect() {
+    setDisconnecting(true)
+    try {
+      await fetch('/api/gmail/disconnect', { method: 'DELETE' })
+      setStatus({ connected: false })
+      toast('Gmail disconnected.', 'success')
+    } catch {
+      toast('Failed to disconnect.', 'error')
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  if (status === null) {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 animate-pulse">
+        <div className="h-4 w-40 bg-zinc-100 rounded" />
+      </div>
+    )
+  }
+
+  if (!status.connected) {
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-red-500">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <polyline points="22,6 12,13 2,6" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-zinc-900">Connect Gmail</p>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Auto-import recruiting emails and classify them with AI.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/api/gmail/connect"
+          className="shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-zinc-900 text-white rounded-lg hover:bg-zinc-700 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
+          Connect Gmail
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 px-5 py-3.5 flex items-center gap-4">
+      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+        <div className="min-w-0">
+          <span className="text-sm font-medium text-zinc-900">{status.gmailAddress}</span>
+          {status.lastSyncedAt ? (
+            <span className="ml-2 text-xs text-zinc-400">
+              Last synced {relativeTime(status.lastSyncedAt)}
+            </span>
+          ) : (
+            <span className="ml-2 text-xs text-zinc-400">Never synced</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-zinc-200 text-zinc-700 rounded-lg hover:bg-zinc-50 hover:border-zinc-300 disabled:opacity-50 transition-colors"
+        >
+          <svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={syncing ? 'animate-spin' : ''}
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          {syncing ? 'Syncing…' : 'Sync Now'}
+        </button>
+        <button
+          onClick={handleDisconnect}
+          disabled={disconnecting}
+          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+        >
+          Disconnect
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // ─── Ingest panel ─────────────────────────────────────────────────────────────
 
@@ -174,7 +359,7 @@ function IngestPanel({ jobs, onAdd }: IngestPanelProps) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-900">Add Email</h2>
+        <h2 className="text-sm font-semibold text-zinc-900">Add Email Manually</h2>
         <span className="text-xs text-zinc-400">Paste content or upload .txt / .eml</span>
       </div>
 
@@ -221,8 +406,11 @@ interface EmailCardProps {
 
 function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardProps) {
   const router = useRouter()
+  const toast = useToast()
   const [showBody, setShowBody] = useState(false)
   const [linkJob, setLinkJob] = useState(false)
+  const [classifying, setClassifying] = useState(false)
+  const [extracting, setExtracting] = useState(false)
 
   function handleCreateEvent() {
     const date = email.detectedInterviewDate ?? email.detectedDeadline ?? email.receivedAt
@@ -246,8 +434,54 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
     router.push(`/assistant?${params.toString()}`)
   }
 
-  function handleClassify() {
-    router.push(`/assistant?task=classify_email&emailId=${email.id}`)
+  async function handleClassify() {
+    setClassifying(true)
+    try {
+      const res = await fetch('/api/gmail/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId: email.id }),
+      })
+      const data = await res.json() as { result?: { emailType: string; company: string; detectedAction: string; detectedInterviewDate: string | null; detectedDeadline: string | null }; error?: string }
+      if (!res.ok || !data.result) {
+        toast(data.error ?? 'Classification failed', 'error')
+      } else {
+        onUpdate(email.id, {
+          emailType: data.result.emailType as EmailMessage['emailType'],
+          company: data.result.company || email.company,
+          detectedAction: data.result.detectedAction || undefined,
+          detectedInterviewDate: data.result.detectedInterviewDate || undefined,
+          detectedDeadline: data.result.detectedDeadline || undefined,
+        })
+        toast('Email re-classified', 'success')
+      }
+    } catch {
+      toast('Classification failed — check your connection', 'error')
+    } finally {
+      setClassifying(false)
+    }
+  }
+
+  async function handleExtract() {
+    setExtracting(true)
+    try {
+      const res = await fetch('/api/gmail/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailId: email.id }),
+      })
+      const data = await res.json() as { jobId?: string; extracted?: { company: string; role: string }; error?: string }
+      if (!res.ok || !data.jobId) {
+        toast(data.error ?? 'Could not extract job details', 'error')
+      } else {
+        onUpdate(email.id, { relatedJobId: data.jobId })
+        toast(`Application created: ${data.extracted?.company} — ${data.extracted?.role}`, 'success')
+      }
+    } catch {
+      toast('Extraction failed — check your connection', 'error')
+    } finally {
+      setExtracting(false)
+    }
   }
 
   const linkedJob = jobs.find((j) => j.id === email.relatedJobId)
@@ -365,9 +599,14 @@ function EmailCard({ email, jobs, onUpdate, onDelete, onAddEvent }: EmailCardPro
         <button onClick={handleReply} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-violet-50 hover:text-violet-700 border border-zinc-200 hover:border-violet-200 transition-colors">
           ✍️ Generate Reply
         </button>
-        <button onClick={handleClassify} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors">
-          🤖 Classify with AI
+        <button onClick={handleClassify} disabled={classifying} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-amber-50 hover:text-amber-700 border border-zinc-200 hover:border-amber-200 transition-colors disabled:opacity-50">
+          {classifying ? '⏳ Classifying…' : '🤖 Re-classify'}
         </button>
+        {!email.relatedJobId && (
+          <button onClick={handleExtract} disabled={extracting} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors disabled:opacity-50">
+            {extracting ? '⏳ Creating…' : '➕ Create Application'}
+          </button>
+        )}
         {email.status === 'unread' && (
           <button onClick={() => onUpdate(email.id, { status: 'processed' })} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-zinc-600 bg-zinc-50 hover:bg-emerald-50 hover:text-emerald-700 border border-zinc-200 hover:border-emerald-200 transition-colors">
             ✓ Mark Processed
@@ -412,8 +651,11 @@ export default function EmailPage() {
   const [filterCompany, setFilterCompany] = useState('')
   const [filterType, setFilterType] = useState<EmailType | ''>('')
   const [filterStatus, setFilterStatus] = useState<EmailStatus | ''>('')
+  // Increment to force email list refresh after sync
+  const [syncTick, setSyncTick] = useState(0)
 
   const filtered = useMemo(() => {
+    void syncTick
     const q = filterCompany.trim().toLowerCase()
     return emails.filter((e) => {
       if (q && !(e.company ?? '').toLowerCase().includes(q) && !(e.subject ?? '').toLowerCase().includes(q)) return false
@@ -421,7 +663,7 @@ export default function EmailPage() {
       if (filterStatus && e.status !== filterStatus) return false
       return true
     })
-  }, [emails, filterCompany, filterType, filterStatus])
+  }, [emails, filterCompany, filterType, filterStatus, syncTick])
 
   const allCompanies = useMemo(() => [...new Set(emails.map((e) => e.company).filter(Boolean))].sort() as string[], [emails])
   const hasFilters = filterCompany !== '' || filterType !== '' || filterStatus !== ''
@@ -442,12 +684,15 @@ export default function EmailPage() {
         <h1 className="text-2xl font-semibold text-zinc-900">Email Intelligence</h1>
         <p className="mt-1 text-sm text-zinc-400">
           {emails.length === 0
-            ? 'Paste or upload recruiter emails to track and parse them.'
+            ? 'Connect Gmail to auto-import recruiting emails, or paste one below.'
             : `${emails.length} email${emails.length !== 1 ? 's' : ''} tracked.`}
         </p>
       </div>
 
-      {/* Ingest panel */}
+      {/* Gmail connection */}
+      <GmailSection onSynced={() => setSyncTick((n) => n + 1)} />
+
+      {/* Manual ingest panel */}
       <IngestPanel jobs={jobs} onAdd={addEmail} />
 
       {/* Summary bar */}
@@ -506,7 +751,7 @@ export default function EmailPage() {
           </div>
           <p className="text-base font-medium text-zinc-600">No emails yet</p>
           <p className="text-sm text-zinc-400 mt-1 max-w-xs">
-            Paste an email above and click &ldquo;Parse &amp; Review&rdquo; to add it.
+            Connect Gmail above to auto-sync, or paste an email and click &ldquo;Parse &amp; Review&rdquo;.
           </p>
         </div>
       ) : filtered.length === 0 ? (

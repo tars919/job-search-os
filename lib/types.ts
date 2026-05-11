@@ -469,3 +469,48 @@ export interface EmailMessage {
   createdAt: string
   updatedAt: string
 }
+
+// ─── Job Discovery ────────────────────────────────────────────────────────────
+
+export const DISCOVERY_SOURCES = ['linkedin', 'indeed', 'company', 'manual'] as const
+export type DiscoverySource = (typeof DISCOVERY_SOURCES)[number]
+
+export const DISCOVERY_SOURCE_LABELS: Record<DiscoverySource, string> = {
+  linkedin: 'LinkedIn',
+  indeed: 'Indeed',
+  company: 'Company Site',
+  manual: 'Manual',
+}
+
+export const DISCOVERY_SOURCE_COLORS: Record<DiscoverySource, string> = {
+  linkedin: 'bg-sky-50 text-sky-700',
+  indeed: 'bg-violet-50 text-violet-700',
+  company: 'bg-emerald-50 text-emerald-700',
+  manual: 'bg-zinc-100 text-zinc-600',
+}
+
+export const WORK_MODES = ['remote', 'hybrid', 'on-site'] as const
+export type WorkMode = (typeof WORK_MODES)[number]
+
+export interface JobDiscovery {
+  id: string
+  title: string
+  company: string
+  location?: string
+  workMode?: WorkMode
+  salaryRange?: string
+  source: DiscoverySource
+  sourceUrl?: string
+  description?: string
+  requiredSkills: string[]
+  postedDate?: string    // YYYY-MM-DD
+  deadline?: string      // YYYY-MM-DD
+  fitScore?: number      // 0-100
+  fitWhy?: string[]
+  missingSkills?: string[]
+  saved: boolean
+  applied: boolean
+  rejected: boolean
+  createdAt: string
+  updatedAt: string
+}
